@@ -44,7 +44,8 @@ table columns are chosen for each job. Paths below are relative to this skill's 
    > Stop: <the `Stop:` command from --howto>
 
    Do not skip this when the job is short or the session is non-interactive; output inside a tool call is not
-   seen by the user. When the job ends, report the outcome yourself (key lines of the final `--once` frame:
+   seen by the user. (The plugin also shows the user a one-time notice with these commands when the job starts;
+   your message is still required, since some clients do not display plugin notices.) When the job ends, report the outcome yourself (key lines of the final `--once` frame:
    done, failed, which items). The user should never have to ask for status.
 
 `examples/demo.sh tests` and `examples/demo.sh downloads` run two fake jobs with different columns.

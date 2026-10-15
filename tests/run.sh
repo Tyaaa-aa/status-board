@@ -4,6 +4,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$here/skills/status-board/scripts/sb-lib.sh"
 VIEW="$here/skills/status-board/scripts/job-status.sh"
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+export STATUS_BOARD_HOME="$T/sb-home" CLAUDE_CODE_SESSION_ID=session-one   # keep the job list out of the real home
 fails=0; checks=0
 ok()   { checks=$((checks + 1)); }
 bad()  { checks=$((checks + 1)); fails=$((fails + 1)); printf 'FAIL: %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/    | /'; }
@@ -119,6 +120,24 @@ has "$out" "Running: Both (4 items)" "howto running line"
 # 11. no table at all still renders a board
 S=$T/eleven; sb_init "$S" "No table" 3; sb_start 1 a; sb_ok
 out=$(view "$S"); has "$out" "1/3 done" "board without items.tsv"; hasnt "$out" "Status" "no table header"
+
+# 12. post-bash hook: one notice per job, only in the session that started it
+HOOK="$here/hooks/post-bash.sh"
+hook() { printf '{"session_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" "$2" | CLAUDE_PLUGIN_ROOT="$here" bash "$HOOK"; }
+rm -rf "$STATUS_BOARD_HOME"
+out=$(hook session-one "ls"); [ -z "$out" ] && ok || bad "no notice without jobs" "$out"
+S=$T/hooked; sb_init "$S" "Hooked job" 3 "pkill -f hooked"
+out=$(hook session-two "ls"); [ -z "$out" ] && ok || bad "no notice in another session" "$out"
+out=$(hook session-one "ls")
+has "$out" '"systemMessage"' "notice emitted"; has "$out" 'job started: Hooked job (3 items)' "notice title"
+has "$out" 'Stop:  pkill -f hooked' "notice stop line"; has "$out" "Watch: bash $VIEW" "notice watch line"
+if command -v python3 >/dev/null; then python3 -c 'import json,sys; json.loads(sys.stdin.read())' <<<"$out" && ok || bad "notice is valid JSON" "$out"; fi
+out=$(hook session-one "ls"); [ -z "$out" ] && ok || bad "notice shown only once" "$out"
+( sleep 0.4; CLAUDE_CODE_SESSION_ID=session-one bash -c "source '$LIB'; sb_init '$T/late' 'Late job' 1" ) &
+out=$(hook session-one "setsid nohup bash job.sh &"); wait
+has "$out" 'job started: Late job' "background job registered a moment later is still announced"
+out=$(STATUS_BOARD_NOTICE=0 bash -c "source '$LIB'; sb_init '$T/off' 'Off' 1"; hook session-one "ls" | STATUS_BOARD_NOTICE=0 cat >/dev/null; printf '{"session_id":"session-one"}' | STATUS_BOARD_NOTICE=0 bash "$HOOK")
+[ -z "$out" ] && ok || bad "STATUS_BOARD_NOTICE=0 turns notices off" "$out"
 
 echo "$((checks - fails))/$checks checks passed"
 exit "$fails"

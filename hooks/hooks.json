@@ -1,10 +1,26 @@
 {
-  "description": "Reminds Claude at session start that long-running jobs are shown on the status board.",
+  "description": "Status board: reminds Claude at session start to use the board for long jobs, and shows the user how to watch and stop each job it starts.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "timeout": 5 }
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post-bash.sh\"",
+            "timeout": 10
+          }
         ]
       }
     ]

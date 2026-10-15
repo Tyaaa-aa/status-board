@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+- New notice: when Claude starts a board job, the plugin itself shows you "job started / Watch / Stop" in the
+  chat, once per job and only in the session that started it (a `PostToolUse` hook on Bash, about 3 ms per
+  command). Claude no longer has to remember to pass it on. `STATUS_BOARD_NOTICE=0` turns it off.
+- `sb_init` keeps a small list of started jobs in `~/.local/state/status-board/` (override: `STATUS_BOARD_HOME`).
+
 ## 1.3.0
 - `job-status.sh --howto <state>` prints a ready-to-paste "Running / Watch / Stop" message.
 - The skill gives Claude a literal message template built from `--howto` (fresh-session tests showed it

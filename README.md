@@ -67,8 +67,19 @@ In Claude Code:
 Then start a new Claude Code session. From then on Claude shows long-running and multi-item work on the board
 by itself; you can also ask for it ("run the migration with a status board").
 
-How it knows: a small `SessionStart` hook adds two sentences to each session saying that long jobs go on the board.
-That is the only thing the hook does (it runs no job and reads nothing). Turn it off with
+How it works: two small hooks, nothing else.
+- At the start of each session, one adds two sentences telling Claude that long jobs go on the board.
+- When Claude starts a job, the other shows you a one-time notice in the chat, written by the plugin itself so it
+  is never forgotten:
+
+  ```
+  status-board · job started: Resize photos (3 items)
+    Watch: bash …/job-status.sh /tmp/…/state
+    Stop:  kill 12345
+  ```
+
+The hooks run no jobs and send nothing anywhere. They keep a small list of started jobs in
+`~/.local/state/status-board/`. Turn the notice off with `STATUS_BOARD_NOTICE=0`, or the whole plugin with
 `/plugin disable status-board@status-board`.
 
 In the desktop app or an IDE with a terminal panel, Claude opens the board there. In a plain terminal it gives you
@@ -110,7 +121,7 @@ when output is not a terminal unless `FORCE_COLOR=1`.
 
 | Path | What |
 |---|---|
-| `hooks/` | the `SessionStart` note that makes Claude use the board unasked |
+| `hooks/` | the session-start note (Claude uses the board unasked) and the "job started" notice for you |
 | `skills/status-board/SKILL.md` | instructions Claude follows |
 | `skills/status-board/STATUS-BOARD.md` | the spec: layout, colours, health rules, file contract |
 | `skills/status-board/scripts/sb-lib.sh` | bash helpers a job uses to write its state |

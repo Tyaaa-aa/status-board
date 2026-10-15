@@ -46,9 +46,17 @@ sb_init() {
   SB_IDX=; SB_LABEL=; SB_W=0; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
   SB_RS=(); SB_RC=(); SB_ORDER=()
   mkdir -p "$SB_STATE" || return 1
+  _sb_register
   rm -f "$SB_STATE/items.tsv" "$SB_STATE/output.log"
   echo "$SB_PID" > "$SB_STATE/job.pid"; _sb_put "$SB_STATE/progress" ""; : > "$SB_STATE/job.log"
   _sb_current; _sb_summary 0
+}
+_sb_register() {  # list the job so the plugin can tell the user (in the Claude session that started it) where it is
+  local home="${STATUS_BOARD_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/status-board}" abs
+  abs=$(cd "$SB_STATE" && pwd) || return 0
+  mkdir -p "$home" 2>/dev/null || return 0
+  printf '%s\t%s\t%s\n' "$(date +%s)" "${CLAUDE_CODE_SESSION_ID:-}" "$abs" >> "$home/jobs" 2>/dev/null || return 0
+  if [ "$(wc -l < "$home/jobs")" -gt 1000 ]; then tail -n 500 "$home/jobs" > "$home/jobs.tmp" && mv -f "$home/jobs.tmp" "$home/jobs"; fi
 }
 _sb_summary() {
   _sb_put "$SB_STATE/summary.env" "TITLE=$SB_TITLE
