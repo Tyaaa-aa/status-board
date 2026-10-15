@@ -3,7 +3,8 @@
 #
 # Usage:  job-status.sh [--once] <state-dir> [refresh-seconds]
 #   --once       print one frame without cursor control and exit (for scripts, tests and agents)
-#   NO_COLOR=1   disable colour (symbols and layout still carry the meaning)
+#   NO_COLOR=1   disable colour (symbols and layout still carry the meaning); colour is also off when the output
+#                is not a terminal, unless FORCE_COLOR=1
 # Keys:   ↑/↓ or k/j scroll · PgUp/PgDn page · g/G top/bottom · f follow the current item · q quit (job keeps running)
 #
 # The job writes plain files into <state-dir> (easiest via sb-lib.sh); the format is in ../STATUS-BOARD.md.
@@ -18,7 +19,7 @@ STATE="${1:?usage: job-status.sh [--once] <state-dir> [refresh-seconds]}"; EVERY
 case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) { export LC_ALL=C.UTF-8; } 2>/dev/null;; esac
 
 # ---- palette: a colour always means the same thing ----
-if [ -n "${NO_COLOR:-}" ]; then
+if [ -n "${NO_COLOR:-}" ] || { [ ! -t 1 ] && [ -z "${FORCE_COLOR:-}" ]; }; then
   G=; GB=; C=; R=; Y=; D=; B=; N=; TAGS=("" "" "" "")
 else
   G=$'\e[32m'      # done / healthy

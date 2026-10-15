@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.2
+From a fresh-session test where Claude used the board unasked but left out a few things:
+- The skill now requires telling the user how to watch the board and how to stop the job, in the reply that
+  starts it, and reporting the outcome at the end. The session note says so too.
+- `sb_init` accepts the stop command as the 4th argument when no total weight is given.
+- The viewer turns colour off when its output is not a terminal (`FORCE_COLOR=1` to keep it), so `--once`
+  frames read cleanly in logs and in Claude's own tool output.
+
 ## 1.2.1
 - Only a tag (`@`) column with a single group hides itself. Ordinary columns always show: a value repeated on
   every row (such as `no` in a result column) is still a result.

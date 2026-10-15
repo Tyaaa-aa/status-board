@@ -81,11 +81,12 @@ sb_fail "a very long failure reason that would never fit in a narrow terminal at
 for w in 40 50 64 78; do
   out=$(view "$S" "$w"); long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
   [ -z "$long" ] && ok || bad "lines fit a $w-column terminal" "$long"
-  out=$(COLUMNS=$w LINES=60 bash "$VIEW" --once "$S" </dev/null | sed 's/\x1b\[[0-9;]*m//g')
+  out=$(FORCE_COLOR=1 COLUMNS=$w LINES=60 bash "$VIEW" --once "$S" </dev/null | sed 's/\x1b\[[0-9;]*m//g')
   long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
   [ -z "$long" ] && ok || bad "coloured lines fit a $w-column terminal" "$long"
 done
-grep -q $'\e\[' <<<"$(COLUMNS=80 bash "$VIEW" --once "$S" </dev/null)" && ok || bad "colour is on without NO_COLOR"
+grep -q $'\e\[' <<<"$(FORCE_COLOR=1 COLUMNS=80 bash "$VIEW" --once "$S" </dev/null)" && ok || bad "FORCE_COLOR turns colour on"
+grep -q $'\e\[' <<<"$(COLUMNS=80 bash "$VIEW" --once "$S" </dev/null)" && bad "no colour when output is not a terminal" || ok
 grep -q $'\e\[' <<<"$(view "$S")" && bad "NO_COLOR still has escapes" || ok
 
 # 8. waiting for a job that has not started
@@ -104,6 +105,12 @@ has "$(view "$S")" "Output   50" "last output line shown"
 S=$T/ten; sb_init "$S" "External" 1 10; sb_start 1 item 10
 printf 'out_time_us=5000000\nspeed=2.5x\nprogress=continue\n' > "$S/progress"
 out=$(view "$S"); has "$out" " 50%" "out_time_us progress"; has "$out" "rate 2.5x" "speed= shown as rate"
+
+# 11b. stop command given in the weight slot is understood
+S=$T/stopslot; sb_init "$S" "Stop slot" 4 "pkill -f my-job"
+out=$(view "$S"); has "$out" "Stop     pkill -f my-job" "stop command as 4th argument"
+grep -q '^WEIGHT_TOTAL=4$' "$S/summary.env" && ok || bad "weight falls back to item count" "$(cat "$S/summary.env")"
+sb_init "$S" "Both" 4 10 "kill 1"; grep -q '^WEIGHT_TOTAL=10$' "$S/summary.env" && grep -q '^STOP=kill 1$' "$S/summary.env" && ok || bad "weight + stop"
 
 # 11. no table at all still renders a board
 S=$T/eleven; sb_init "$S" "No table" 3; sb_start 1 a; sb_ok

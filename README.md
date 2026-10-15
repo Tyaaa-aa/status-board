@@ -93,7 +93,7 @@ In your own bash job:
 
 ```bash
 source skills/status-board/scripts/sb-lib.sh
-sb_init  /tmp/myjob "Resize photos" 3 "" "kill $$"
+sb_init  /tmp/myjob "Resize photos" 3 "kill $$"
 sb_cols  "Photo" "@Album" "Pixels"
 sb_item  1 a.jpg trip 12M; sb_item 2 b.jpg trip 8M; sb_item 3 c.jpg home 24M
 for i in 1 2 3; do sb_start $i "photo $i"; sb_stage resizing; resize_one $i && sb_ok || sb_fail "resize error"; done
@@ -103,7 +103,8 @@ sb_finish
 Any language can drive the board by writing the plain files described in
 [`STATUS-BOARD.md`](skills/status-board/STATUS-BOARD.md). The viewer never executes them.
 
-Requires bash 4.2+ (macOS: `brew install bash`), awk, sed, tput. `NO_COLOR=1` disables colour.
+Requires bash 4.2+ (macOS: `brew install bash`), awk, sed, tput. `NO_COLOR=1` disables colour; it is also off
+when output is not a terminal unless `FORCE_COLOR=1`.
 
 ## Files
 

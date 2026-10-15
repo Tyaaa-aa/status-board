@@ -2,7 +2,7 @@
 # status-board writer helpers. Source them from a bash job script:
 #
 #   source <skill-dir>/scripts/sb-lib.sh
-#   sb_init     <state-dir> "<title>" <item-count> [total-weight] ["<stop command>"]
+#   sb_init     <state-dir> "<title>" <item-count> [total-weight] ["<stop command>"]   (weight may be left out)
 #   sb_cols     "Name" "@Group" "Size" ...     pick the table columns for THIS job ('@' = coloured tag column)
 #   sb_item     <idx> "cell" "cell" ...        register a row as queued; call once per item, up front
 #   sb_start    <idx> "<label>" [weight]       the item starts (weight defaults to 1)
@@ -36,8 +36,12 @@ _sb_add()   { awk -v a="$1" -v b="$2" 'BEGIN{ s = a + b; if (s == int(s)) printf
 
 sb_init() {
   SB_STATE="${1:?sb_init: state dir}"; _sb_clean "${2:-job}"; SB_TITLE=$SB_V
-  SB_TOTAL="${3:-0}"; SB_WTOTAL="${4:-$SB_TOTAL}"; SB_PID=${BASHPID:-$$}
-  _sb_clean "${5:-kill $SB_PID}"; SB_STOP=$SB_V
+  SB_TOTAL="${3:-0}"; SB_WTOTAL="${4:-}"; SB_PID=${BASHPID:-$$}
+  local stop="${5:-}"
+  # forgiving: a non-numeric 4th argument is the stop command (total weight left out)
+  if [ -n "$SB_WTOTAL" ] && ! [[ $SB_WTOTAL =~ ^[0-9]+([.][0-9]+)?$ ]]; then [ -z "$stop" ] && stop=$SB_WTOTAL; SB_WTOTAL=; fi
+  [ -z "$SB_WTOTAL" ] && SB_WTOTAL=$SB_TOTAL
+  _sb_clean "${stop:-kill $SB_PID}"; SB_STOP=$SB_V
   SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s)
   SB_IDX=; SB_LABEL=; SB_W=0; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
   SB_RS=(); SB_RC=(); SB_ORDER=()

@@ -12,7 +12,7 @@ table columns are chosen for each job. Paths below are relative to this skill's 
 2. Make the job write its state. In a bash job script:
    ```bash
    source "<skill-dir>/scripts/sb-lib.sh"
-   sb_init  "$STATE" "<what this job is>" <item-count> [total-weight] "<exact stop command>"
+   sb_init  "$STATE" "<what this job is>" <item-count> "<exact stop command>"   # or: <count> <total-weight> "<stop>"
    sb_cols  "<col>" "@<tag col>" "<col>"          # columns that matter for THIS job
    sb_item  1 "<cell>" "<cell>" "<cell>"          # once per item, up front
    sb_start 1 "<item label>" [weight]; sb_stage "<what it is doing>"
@@ -35,8 +35,12 @@ table columns are chosen for each job. Paths below are relative to this skill's 
      Never run the live viewer through your own shell tool: it loops until the job ends and its output is hidden.
    - Either way, `bash "<skill-dir>/scripts/job-status.sh" --once "$STATE"` prints one plain frame. Use it to check
      the job yourself, and paste a frame into chat at meaningful moments if the user cannot see a live board.
-4. Tell the user once: what is running, how long it should take, where to look, the exact stop command. Then
-   report completion or failure yourself; the user should never have to ask for status.
+4. **Required, in the same reply that starts the job** (also in non-interactive runs), tell the user:
+   - what is running and roughly how long it will take;
+   - where to watch it: the terminal tab you opened, or the exact viewer command to paste into a second terminal;
+   - the exact stop command.
+   When the job ends, report the outcome yourself (key lines of the final `--once` frame: done, failed, which
+   items). The user should never have to ask for status.
 
 `examples/demo.sh tests` and `examples/demo.sh downloads` run two fake jobs with different columns.
 Requires bash 4.2+, awk, sed, tput.
