@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+- Fix: weights given to `sb_start` without a total weight in `sb_init` made the overall bar overflow (100% with
+  1 of 4 done). Without a total, each item now counts as one, and the item's weight only scales its own progress.
+  Found by Claude in a real session.
+
 ## 1.4.0
 - New notice: when Claude starts a board job, the plugin itself shows you "job started / Watch / Stop" in the
   chat, once per job and only in the session that started it (a `PostToolUse` hook on Bash, about 3 ms per

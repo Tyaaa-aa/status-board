@@ -40,10 +40,11 @@ sb_init() {
   local stop="${5:-}"
   # forgiving: a non-numeric 4th argument is the stop command (total weight left out)
   if [ -n "$SB_WTOTAL" ] && ! [[ $SB_WTOTAL =~ ^[0-9]+([.][0-9]+)?$ ]]; then [ -z "$stop" ] && stop=$SB_WTOTAL; SB_WTOTAL=; fi
-  [ -z "$SB_WTOTAL" ] && SB_WTOTAL=$SB_TOTAL
+  # no total weight: every item counts as 1 overall, and sb_start's weight only scales progress inside the item
+  SB_WEXPLICIT=1; [ -z "$SB_WTOTAL" ] && { SB_WTOTAL=$SB_TOTAL; SB_WEXPLICIT=0; }
   _sb_clean "${stop:-kill $SB_PID}"; SB_STOP=$SB_V
   SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s)
-  SB_IDX=; SB_LABEL=; SB_W=0; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
+  SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
   SB_RS=(); SB_RC=(); SB_ORDER=()
   mkdir -p "$SB_STATE" || return 1
   _sb_register
@@ -109,7 +110,8 @@ sb_state() { [ -z "${SB_RS[$1]+x}" ] && { SB_ORDER+=("$1"); SB_RC[$1]=; }
              _sb_clean "${3:-}"; SB_RS[$1]="$2${SB_V:+:$SB_V}"; _sb_flush force; }
 
 sb_start() {
-  SB_IDX="$1"; _sb_clean "${2:-item $1}"; SB_LABEL=$SB_V; SB_W="${3:-1}"; SB_T0=$(date +%s); SB_STAGE=
+  SB_IDX="$1"; _sb_clean "${2:-item $1}"; SB_LABEL=$SB_V; SB_WI="${3:-1}"; SB_W=$SB_WI; ((SB_WEXPLICIT)) || SB_W=1
+  SB_T0=$(date +%s); SB_STAGE=
   [ -n "$SB_COLUMNS" ] && sb_state "$SB_IDX" run
   _sb_put "$SB_STATE/progress" ""; _sb_current
 }
@@ -118,12 +120,15 @@ sb_stage() {
   [ -n "$SB_COLUMNS" ] && [ -n "$SB_IDX" ] && sb_state "$SB_IDX" run "$SB_STAGE"
   _sb_current
 }
-sb_progress() { _sb_clean "${2:-}"; _sb_put "$SB_STATE/progress" "done=${1:-0}
+sb_progress() {  # done is in the units of the weight given to sb_start
+  local d=${1:-0}
+  if ((! SB_WEXPLICIT)) && [ "${SB_WI:-1}" != 1 ]; then d=$(awk -v d="$d" -v w="$SB_WI" 'BEGIN{ if (w > 0) printf "%.4f", d/w; else print 0 }'); fi
+  _sb_clean "${2:-}"; _sb_put "$SB_STATE/progress" "done=$d
 rate=$SB_V
 "; }
 sb_track() {
   local exp=${1:-100}; shift; [ "${1:-}" = -- ] && shift
-  local n=0 last=-1 w=${SB_W:-1} out="$SB_STATE/output.log" l
+  local n=0 last=-1 w=${SB_WI:-1} out="$SB_STATE/output.log" l
   "$@" 2>&1 | while IFS= read -r l || [ -n "$l" ]; do
     printf '%s\n' "$l" >> "$out"; n=$((n + 1))
     if [ "$SECONDS" != "$last" ]; then last=$SECONDS
@@ -147,7 +152,7 @@ sb_ok()   { SB_DONE=$((SB_DONE + 1)); _sb_end done "${1:-}"; }
 sb_warn() { SB_DONE=$((SB_DONE + 1)); SB_WARNED=$((SB_WARNED + 1)); _sb_end warn "${1:-warning}"; }
 sb_fail() { SB_FAILED=$((SB_FAILED + 1)); _sb_end fail "${1:-}" FAILED; }
 sb_skip() {
-  SB_DONE=$((SB_DONE + 1)); SB_SKIPPED=$((SB_SKIPPED + 1)); SB_WDONE=$(_sb_add "$SB_WDONE" "${3:-1}")
+  SB_DONE=$((SB_DONE + 1)); SB_SKIPPED=$((SB_SKIPPED + 1)); local w=1; ((SB_WEXPLICIT)) && w=${3:-1}; SB_WDONE=$(_sb_add "$SB_WDONE" "$w")
   [ -n "$SB_COLUMNS" ] && sb_state "$1" skip "${2:-}"
   _sb_summary 0
 }

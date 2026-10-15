@@ -67,6 +67,12 @@ S=$T/five; sb_init "$S" "Weights" 2 2.5
 sb_start 1 a 2; sb_ok; sb_start 2 b 0.5; sb_progress 0.25
 out=$(view "$S"); has "$out" " 90%" "overall % from fractional weights"; has "$out" " 50%" "item % from fractional weights"
 
+# 5b. per-item weights without a total weight: each item still counts as one (no overflowing bar)
+S=$T/fiveb; sb_init "$S" "Item weights" 4 "kill 1"
+sb_start 1 a 3; sb_ok; out=$(view "$S"); has "$out" " 25%" "1 of 4 done is 25%"
+sb_start 2 b 3; sb_progress 1.5; out=$(view "$S"); has "$out" " 37%" "overall counts items"; has "$out" " 50%" "item % uses its weight"
+sb_ok; sb_skip 3 "" 3; out=$(view "$S"); has "$out" " 75%" "skip counts one item"
+
 # 6. dead job is NOT RUNNING, quiet job is SLOW?/STALLED?
 S=$T/six; sb_init "$S" "Dead" 2; sb_start 1 a
 ( exit 0 ) & dead=$!; wait "$dead"; echo "$dead" > "$S/job.pid"
