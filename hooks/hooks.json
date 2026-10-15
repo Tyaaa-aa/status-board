@@ -1,0 +1,12 @@
+{
+  "description": "Reminds Claude at session start that long-running jobs are shown on the status board.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}

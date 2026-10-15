@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+- SessionStart hook: a two-sentence note at the start of each session so Claude shows long-running jobs on the
+  board without being asked (re-added after `/clear` and compaction). Disable the plugin to turn it off.
+- Skill works in the plain CLI: without a terminal-pane tool, Claude gives you the viewer command for a second
+  terminal and uses `--once` frames to check and report.
+
 ## 1.1.0
 Rewrite for general use. State files from 1.0.0 are not compatible (restart running jobs after updating).
 

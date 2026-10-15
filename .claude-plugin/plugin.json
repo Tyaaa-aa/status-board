@@ -1,10 +1,20 @@
 {
   "name": "status-board",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Live colour-coded terminal board for long-running jobs: progress, ETA, health, stop command, and an item table whose columns each job chooses.",
-  "author": { "name": "Tyaaa-aa", "url": "https://github.com/Tyaaa-aa" },
+  "author": {
+    "name": "Tyaaa-aa",
+    "url": "https://github.com/Tyaaa-aa"
+  },
   "homepage": "https://github.com/Tyaaa-aa/status-board",
   "repository": "https://github.com/Tyaaa-aa/status-board",
   "license": "MIT",
-  "keywords": ["status", "progress", "logging", "terminal", "long-running", "jobs"]
+  "keywords": [
+    "status",
+    "progress",
+    "logging",
+    "terminal",
+    "long-running",
+    "jobs"
+  ]
 }

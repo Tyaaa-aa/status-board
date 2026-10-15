@@ -28,8 +28,13 @@ table columns are chosen for each job. Paths below are relative to this skill's 
      (`setsid nohup bash job.sh >/dev/null 2>&1 &`) so it outlives the shell.
    - Jobs with long silent steps: set `SB_SLOW_AFTER` / `SB_STALL_AFTER` (seconds) before `sb_init`.
    - Programs other than bash can write the files directly (see `STATUS-BOARD.md`).
-3. Open the viewer in a terminal tab: `bash "<skill-dir>/scripts/job-status.sh" "$STATE"`. Read the pane back to
-   confirm it renders. `job-status.sh --once "$STATE"` prints one plain frame, handy for checking state yourself.
+3. Show the board. The viewer command is `bash "<skill-dir>/scripts/job-status.sh" "$STATE"`.
+   - **If you have a tool that runs a command in a terminal tab or pane the user can see** (e.g. a terminal panel
+     in a desktop app or IDE), run the viewer there and read the pane back to confirm it renders.
+   - **Otherwise (plain CLI, no such tool):** give the user that exact command to paste into a second terminal.
+     Never run the live viewer through your own shell tool: it loops until the job ends and its output is hidden.
+   - Either way, `bash "<skill-dir>/scripts/job-status.sh" --once "$STATE"` prints one plain frame. Use it to check
+     the job yourself, and paste a frame into chat at meaningful moments if the user cannot see a live board.
 4. Tell the user once: what is running, how long it should take, where to look, the exact stop command. Then
    report completion or failure yourself; the user should never have to ask for status.
 

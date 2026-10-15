@@ -64,8 +64,15 @@ In Claude Code:
 /plugin install status-board@status-board
 ```
 
-Then start a new Claude Code session. Claude uses the skill on its own for long-running work,
-or ask for it: "run the migration with a status board".
+Then start a new Claude Code session. From then on Claude shows long-running and multi-item work on the board
+by itself; you can also ask for it ("run the migration with a status board").
+
+How it knows: a small `SessionStart` hook adds two sentences to each session saying that long jobs go on the board.
+That is the only thing the hook does (it runs no job and reads nothing). Turn it off with
+`/plugin disable status-board@status-board`.
+
+In the desktop app or an IDE with a terminal panel, Claude opens the board there. In a plain terminal it gives you
+the one command to run in a second terminal window.
 
 ## Update
 
@@ -102,6 +109,7 @@ Requires bash 4.2+ (macOS: `brew install bash`), awk, sed, tput. `NO_COLOR=1` di
 
 | Path | What |
 |---|---|
+| `hooks/` | the `SessionStart` note that makes Claude use the board unasked |
 | `skills/status-board/SKILL.md` | instructions Claude follows |
 | `skills/status-board/STATUS-BOARD.md` | the spec: layout, colours, health rules, file contract |
 | `skills/status-board/scripts/sb-lib.sh` | bash helpers a job uses to write its state |
