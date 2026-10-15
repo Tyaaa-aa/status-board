@@ -55,6 +55,25 @@ showing 1-5 of 5  ✔ 2 done  ▶ 1 running  · 1 queued  – 1 skipped  ✖ 0 f
 
 (The downloads job also declared a `@Mirror` tag column; every file came from the same mirror, so the board hid it.)
 
+A single item gets a shorter board, and progress with no known total says so instead of sitting at 0%:
+
+```
+Export: final cut
+────────────────────────────────────────────────────────────────────────────────
+NOW      final cut.mp4  [encoding]
+Progress [╌╌╌╌╌╌╌ no % available ╌╌╌╌╌╌╌]   54 MB written   rate 0.4 MB/s
+         elapsed 2:28   ETA unknown - no % available
+Health   ● OK - progressing (last update 0s ago)
+Stop     cancel it in the app's export queue
+```
+
+When the app doing the work reports its own percentage and time left, those go on the board as they are:
+
+```
+Progress [███████░░░░░░░░░░░░░░░░░░░░░░░]  26%   54 MB written   rate 0.4 MB/s
+         elapsed 12:31   ETA ~21:00
+```
+
 ## Install
 
 In Claude Code:
@@ -64,11 +83,13 @@ In Claude Code:
 /plugin install status-board@status-board
 ```
 
-Then start a new Claude Code session. From then on Claude shows long-running and multi-item work on the board
-by itself; you can also ask for it ("run the migration with a status board").
+Then start a new Claude Code session. From then on Claude uses the board by itself when it helps: a batch of
+2 or more items that runs more than about a minute, or one task over about 1-2 minutes whose progress can be
+measured. A single task with no percentage gets no board (just "started / how to stop" and the result). You can
+always ask for it ("run the migration with a status board").
 
 How it works: two small hooks, nothing else.
-- At the start of each session, one adds two sentences telling Claude that long jobs go on the board.
+- At the start of each session, one adds a short note telling Claude when to use the board.
 - When Claude starts a job, the other shows you a one-time notice in the chat, written by the plugin itself so it
   is never forgotten:
 
@@ -111,6 +132,18 @@ for i in 1 2 3; do sb_start $i "photo $i"; sb_stage resizing; resize_one $i && s
 sb_finish
 ```
 
+Mark an item whose progress cannot be measured with `sb_start <idx> "<label>" ?`, report what has happened with
+`sb_count "54 MB written"`, and pass a tool's own figures with `sb_pct 26 21:00`.
+
+From outside a script (one command per update, e.g. progress read from an app):
+
+```bash
+sb=skills/status-board/scripts/sb.sh
+$sb /tmp/export init "Export: final cut" 1 "cancel it in the app"
+$sb /tmp/export start 1 "final cut.mp4"; $sb /tmp/export pct 26 21:00
+$sb /tmp/export ok; $sb /tmp/export finish
+```
+
 Any language can drive the board by writing the plain files described in
 [`STATUS-BOARD.md`](skills/status-board/STATUS-BOARD.md). The viewer never executes them.
 
@@ -125,6 +158,7 @@ when output is not a terminal unless `FORCE_COLOR=1`.
 | `skills/status-board/SKILL.md` | instructions Claude follows |
 | `skills/status-board/STATUS-BOARD.md` | the spec: layout, colours, health rules, file contract |
 | `skills/status-board/scripts/sb-lib.sh` | bash helpers a job uses to write its state |
+| `skills/status-board/scripts/sb.sh` | the same helpers as one-shot commands (`sb.sh <state> pct 26 21:00`) |
 | `skills/status-board/scripts/job-status.sh` | the viewer (`--once` prints one plain frame) |
 | `skills/status-board/examples/demo.sh` | two fake jobs |
 | `tests/run.sh` | test suite |

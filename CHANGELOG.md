@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.0
+From a real session where one video export got a board that sat at 0% with "ETA calculating" for its whole run,
+while the app itself showed 26% and 21 minutes left.
+- **Fewer boards.** Claude uses the board for a batch of 2+ items over about a minute, for one task over about
+  1-2 minutes whose progress can be measured, or when asked. A single task with no percentage gets no board:
+  Claude says what is running and how to stop it, then reports the result. (Session note, skill and spec.)
+- **Progress from the source first.** The skill tells Claude to use the app's or tool's own percentage and time
+  left before measuring anything itself, and to put every number it learns on the board.
+- **No fake 0%.** An item whose progress cannot be measured (`sb_start <idx> "<label>" ?`) or has not reported
+  any shows dim dashes with "no % available" / "no % reported yet" instead of an empty bar, and no % in the table.
+- **Honest ETA.** "calculating" is gone. The ETA is a time, "not enough progress yet", "unknown - no % available",
+  or "unknown until the first item finishes", whichever is true.
+- **One item, one line.** A single-item job shows one progress line and a Details line (the row's cells) instead
+  of an Overall bar, a NOW bar and a one-row table that all said the same thing.
+- New: `sb_pct <percent> [eta]` (a tool's own figures; they win over `sb_progress`, and the ETA counts down
+  between reports), `sb_count "<text>"` (what has happened when there is no total).
+- New: `scripts/sb.sh <state> <command> ...`, every helper as a one-shot command, so Claude can update a board
+  with numbers only it can read (e.g. through an app's MCP tools). `SB_WATCH_PID` on `init` watches the app's
+  process instead of a job script. Without a `job.pid`, health comes from fresh updates alone.
+
 ## 1.4.1
 - Fix: weights given to `sb_start` without a total weight in `sb_init` made the overall bar overflow (100% with
   1 of 4 done). Without a total, each item now counts as one, and the item's weight only scales its own progress.

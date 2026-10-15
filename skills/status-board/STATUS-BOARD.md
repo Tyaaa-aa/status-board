@@ -30,6 +30,45 @@ showing 1-23 of 23  ✔ 11 done  ▶ 1 running  · 10 queued  ✖ 1 failed
 Lines with nothing to say are left out: no `rate` unless the job gives one, no `Output` without an output log,
 no `NOW` or `Stop` once finished, no table without `items.tsv`.
 
+### One item
+
+A job with one item does not repeat itself: no separate `Overall` bar, no `(1/1)`, no one-row table. The row's
+cells (minus `-` placeholders and the item name) become a `Details` line.
+
+```
+<job title>
+──────────────────────────────────────────────
+NOW      <item>  [<stage>]
+Progress [███████░░░░░░░░░░░░░░░░░░░░░░░]  26%   <count>   rate <job text>
+         elapsed 12:31   ETA ~21:00
+Details  <column> <value> · <column> <value>
+Health   ● OK - progressing (last update 0s ago)
+Stop     <exact command that stops the job>
+```
+
+### No percentage
+
+When an item's progress cannot be measured (no known total), the bar is replaced by dim dashes that say so,
+and the ETA says why there is none. There is never a bar stuck at 0%, and never "calculating" when nothing is
+being calculated.
+
+```
+Progress [╌╌╌╌╌╌╌ no % available ╌╌╌╌╌╌╌]   54 MB written   rate 0.4 MB/s
+         elapsed 2:28   ETA unknown - no % available
+```
+
+| Bar text | ETA text | When |
+|---|---|---|
+| `no % available` | `unknown - no % available` | the job marked the item unmeasurable (`sb_start … ?`) and no `pct=` was reported |
+| `no % reported yet` | `unknown - no % reported yet` | the item has reported nothing yet |
+| a real bar | `not enough progress yet` | measurable, but under 1% so far |
+| a real bar | `~<time>` | extrapolated, or the tool's own `eta=` (counting down between reports) |
+| | `unknown until the first item finishes` | several items, none done, current one has no % |
+
+In a batch, `Overall` stays a real bar (items done out of the total); only the current item's bar turns into
+dashes. The table's Status column shows the current item's % only when it is known. Narrow terminals get short
+forms (`unknown`, `too early`, `unknown yet`).
+
 ## Columns
 
 - The job declares them (`sb_cols`, or the `#COLUMNS` line of `items.tsv`). Pick what answers "what do I need at
@@ -75,7 +114,8 @@ long silent steps should raise the thresholds (`SB_SLOW_AFTER`, `SB_STALL_AFTER`
 
 Overall % = (weight of processed items + done weight of the current item) / total weight. Weights are any unit
 that matches the work (items, bytes, test cases, seconds of media); without weights every item counts 1.
-ETA is extrapolated from elapsed time and percent, so jobs do not have to report a speed.
+ETA is extrapolated from elapsed time and percent, so jobs do not have to report a speed. A tool that reports its
+own percentage or time left (`pct=`, `eta=` in `progress`) wins over both: what the tool knows is shown as is.
 
 ## File contract (`<state-dir>`)
 
@@ -84,19 +124,25 @@ rename). The viewer never executes these files; it only reads the keys listed he
 
 | File | Content |
 |---|---|
-| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER` (`STARTED` = epoch seconds, `FINISHED` = 0/1) |
+| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER WEIGHT_EXPLICIT` (`STARTED` = epoch seconds, `FINISHED` = 0/1) |
 | `current.env` | `KEY=value` lines for the item in progress: `IDX NAME WEIGHT STAGE ITEM_START`; empty between items |
-| `progress` | `done=<weight done in the current item>` and optional `rate=<free text>`. Programs that write ffmpeg-style `out_time_us=` / `speed=` work as-is |
-| `job.pid` | pid of the job process |
+| `current.env` (cont.) | also `ITEM_WEIGHT` (weight as given) and `MEASURABLE=0` for an item whose progress cannot be measured |
+| `progress` | `done=<weight done in the current item>`, and optional `pct=<0-100 as the tool reports it>`, `eta=<seconds or h:mm:ss left, as the tool reports it>`, `count=<free text, e.g. 54 MB written>`, `rate=<free text>`. Programs that write ffmpeg-style `out_time_us=` / `speed=` work as-is |
+| `job.pid` | pid of the process whose exit means NOT RUNNING (the job, or with `SB_WATCH_PID` the app doing the work). Optional: without it, health comes from fresh updates alone |
 | `items.tsv` | optional table, tab-separated: `#COLUMNS<TAB>name<TAB>name…`, then one row per item: `<idx><TAB><state>[:<detail>]<TAB><cell><TAB><cell>…` with state `queued`, `run`, `done`, `warn`, `fail` or `skip` |
 | `output.log` | optional; the last line is shown as `Output` (written by `sb_track`) |
 | `job.log` | human-readable history written by `sb-lib.sh`; not read by the viewer |
 
 ## Rules for the agent
 
-1. Any automated or long-running task gets this board, not a bare `tail -f` or a wall of log lines.
-2. Choose the columns for the job at hand.
-3. Read the terminal pane back and check it renders before telling the user to look.
-4. Say once: what is running, expected duration, where to look, the exact stop command. Then report completion
+1. Use the board for a batch of 2+ items that runs more than about a minute, for one item over about 1-2 minutes
+   whose progress can be measured, or when the user asks. Not for a single task with no measurable progress:
+   say what is running and how to stop it, then report the result.
+2. Get progress from the source first (the app's or tool's own percentage and time left); a proxy counts only
+   when its total is known. Mark unmeasurable items as such instead of showing 0%.
+3. The board never shows less than you know: push every number you read (`sb.sh <state> pct <n> [eta]`).
+4. Choose the columns for the job at hand.
+5. Read the terminal pane back and check it renders before telling the user to look.
+6. Say once: what is running, expected duration, where to look, the exact stop command. Then report completion
    or failure without being asked.
-5. Health comes from fresh progress, never from "the process exists".
+7. Health comes from fresh progress, never from "the process exists".

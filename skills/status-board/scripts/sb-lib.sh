@@ -6,8 +6,12 @@
 #   sb_cols     "Name" "@Group" "Size" ...     pick the table columns for THIS job ('@' = coloured tag column)
 #   sb_item     <idx> "cell" "cell" ...        register a row as queued; call once per item, up front
 #   sb_start    <idx> "<label>" [weight]       the item starts (weight defaults to 1)
+#   sb_start    <idx> "<label>" ? [weight]     ...and its progress cannot be measured (no known total): the board
+#                                              shows "no % available" instead of a bar stuck at 0%
 #   sb_stage    "<stage>"                      what the current item is doing now
 #   sb_progress <done-weight> ["<rate>"]       progress inside the current item; rate is free text ("12 MB/s")
+#   sb_pct      <percent> [eta]                progress as the tool/app itself reports it (eta: seconds or m:ss)
+#   sb_count    "<text>"                       what has happened so far when there is no total ("54 MB written")
 #   sb_track    <expected-lines> -- cmd ...    run cmd, count its output lines as progress, return its exit code
 #   sb_cell     <idx> <column-number> "value"  change one cell (1-based) at any time
 #   sb_ok       ["<note>"]                     the current item finished OK
@@ -17,6 +21,8 @@
 #   sb_state    <idx> <queued|run|done|warn|fail|skip> ["<detail>"]   low-level row state (parallel jobs)
 #   sb_finish                                  the whole job is done (call it last, not from an EXIT trap,
 #                                              so a crash shows as NOT RUNNING instead of FINISHED)
+#
+# From outside a job script (one command per update, e.g. progress Claude reads through an app's tools): sb.sh.
 #
 # Optional, set before sb_init: SB_SLOW_AFTER=15 SB_STALL_AFTER=60 (seconds without progress before the board
 # says SLOW? / STALLED?). Raise them for jobs with long silent steps.
@@ -37,19 +43,22 @@ _sb_add()   { awk -v a="$1" -v b="$2" 'BEGIN{ s = a + b; if (s == int(s)) printf
 sb_init() {
   SB_STATE="${1:?sb_init: state dir}"; _sb_clean "${2:-job}"; SB_TITLE=$SB_V
   SB_TOTAL="${3:-0}"; SB_WTOTAL="${4:-}"; SB_PID=${BASHPID:-$$}
+  # SB_WATCH_PID: the process whose exit means "not running" (default: this job). 'none' = no process to watch.
+  local pid=${SB_WATCH_PID:-$SB_PID}
   local stop="${5:-}"
   # forgiving: a non-numeric 4th argument is the stop command (total weight left out)
   if [ -n "$SB_WTOTAL" ] && ! [[ $SB_WTOTAL =~ ^[0-9]+([.][0-9]+)?$ ]]; then [ -z "$stop" ] && stop=$SB_WTOTAL; SB_WTOTAL=; fi
   # no total weight: every item counts as 1 overall, and sb_start's weight only scales progress inside the item
   SB_WEXPLICIT=1; [ -z "$SB_WTOTAL" ] && { SB_WTOTAL=$SB_TOTAL; SB_WEXPLICIT=0; }
-  _sb_clean "${stop:-kill $SB_PID}"; SB_STOP=$SB_V
+  [ -z "$stop" ] && [ -z "${SB_WATCH_PID:-}" ] && stop="kill $SB_PID"   # never default to killing a watched process
+  _sb_clean "$stop"; SB_STOP=$SB_V
   SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s)
-  SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
+  SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
   SB_RS=(); SB_RC=(); SB_ORDER=()
   mkdir -p "$SB_STATE" || return 1
   _sb_register
   rm -f "$SB_STATE/items.tsv" "$SB_STATE/output.log"
-  echo "$SB_PID" > "$SB_STATE/job.pid"; _sb_put "$SB_STATE/progress" ""; : > "$SB_STATE/job.log"
+  if [ "$pid" = none ]; then rm -f "$SB_STATE/job.pid"; else echo "$pid" > "$SB_STATE/job.pid"; fi; _sb_put "$SB_STATE/progress" ""; : > "$SB_STATE/job.log"
   _sb_current; _sb_summary 0
 }
 _sb_register() {  # list the job so the plugin can tell the user (in the Claude session that started it) where it is
@@ -74,6 +83,7 @@ LAST=$SB_LAST
 STOP=$SB_STOP
 SLOW_AFTER=${SB_SLOW_AFTER:-15}
 STALL_AFTER=${SB_STALL_AFTER:-60}
+WEIGHT_EXPLICIT=$SB_WEXPLICIT
 "
 }
 _sb_current() {
@@ -81,6 +91,8 @@ _sb_current() {
     _sb_put "$SB_STATE/current.env" "IDX=$SB_IDX
 NAME=$SB_LABEL
 WEIGHT=$SB_W
+ITEM_WEIGHT=$SB_WI
+MEASURABLE=$SB_M
 STAGE=$SB_STAGE
 ITEM_START=$SB_T0
 "
@@ -110,7 +122,9 @@ sb_state() { [ -z "${SB_RS[$1]+x}" ] && { SB_ORDER+=("$1"); SB_RC[$1]=; }
              _sb_clean "${3:-}"; SB_RS[$1]="$2${SB_V:+:$SB_V}"; _sb_flush force; }
 
 sb_start() {
-  SB_IDX="$1"; _sb_clean "${2:-item $1}"; SB_LABEL=$SB_V; SB_WI="${3:-1}"; SB_W=$SB_WI; ((SB_WEXPLICIT)) || SB_W=1
+  SB_IDX="$1"; _sb_clean "${2:-item $1}"; SB_LABEL=$SB_V; SB_M=1
+  [ "${3:-}" = "?" ] && { SB_M=0; set -- "$1" "$2" "${4:-}"; }
+  SB_WI="${3:-1}"; SB_W=$SB_WI; ((SB_WEXPLICIT)) || SB_W=1
   SB_T0=$(date +%s); SB_STAGE=
   [ -n "$SB_COLUMNS" ] && sb_state "$SB_IDX" run
   _sb_put "$SB_STATE/progress" ""; _sb_current
@@ -123,9 +137,28 @@ sb_stage() {
 sb_progress() {  # done is in the units of the weight given to sb_start
   local d=${1:-0}
   if ((! SB_WEXPLICIT)) && [ "${SB_WI:-1}" != 1 ]; then d=$(awk -v d="$d" -v w="$SB_WI" 'BEGIN{ if (w > 0) printf "%.4f", d/w; else print 0 }'); fi
-  _sb_clean "${2:-}"; _sb_put "$SB_STATE/progress" "done=$d
-rate=$SB_V
-"; }
+  _sb_prog done "$d" rate "${2:-}"; }
+sb_pct() {  # <percent> [eta]: a percentage (and ETA) reported by the tool doing the work; wins over sb_progress
+  local p=${1:-} e=${2:-}
+  [[ $p =~ ^[0-9]+([.][0-9]+)?%?$ ]] || { echo "sb_pct: not a percentage: $p" >&2; return 1; }
+  if [ -n "$e" ]; then e=$(_sb_secs "$e") || { echo "sb_pct: not a duration: $2" >&2; return 1; }; fi
+  _sb_prog pct "${p%\%}" eta "$e"; }
+sb_count() { _sb_prog count "${1:-}"; }   # free text for work without a total ("54 MB written", "1200 rows")
+_sb_secs() {  # "90", "90s", "1:30", "1:02:03", "39:53 left" -> seconds
+  local t=${1//[!0-9:]/} a b c
+  [[ $t =~ ^[0-9]+$ ]] && { echo "$((10#$t))"; return; }
+  if [[ $t =~ ^([0-9]+):([0-9]{1,2})$ ]]; then echo $((10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]})); return; fi
+  if [[ $t =~ ^([0-9]+):([0-9]{1,2}):([0-9]{1,2})$ ]]; then a=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} c=${BASH_REMATCH[3]}
+    echo $((10#$a * 3600 + 10#$b * 60 + 10#$c)); return; fi
+  return 1; }
+_sb_prog() {  # <key> <value> ...: change these keys of the progress file and keep the others (empty value = remove)
+  local -A kv=(); local k v out= ks=(done pct eta count rate)
+  if [ -f "$SB_STATE/progress" ]; then
+    while IFS='=' read -r k v || [ -n "$k" ]; do case "$k" in done|pct|eta|count|rate) kv[$k]=$v;; esac; done < "$SB_STATE/progress"
+  fi
+  while (($# >= 2)); do _sb_clean "$2"; kv[$1]=$SB_V; shift 2; done
+  for k in "${ks[@]}"; do [ -n "${kv[$k]:-}" ] && out+="$k=${kv[$k]}"$'\n'; done
+  _sb_put "$SB_STATE/progress" "$out"; }
 sb_track() {
   local exp=${1:-100}; shift; [ "${1:-}" = -- ] && shift
   local n=0 last=-1 w=${SB_WI:-1} out="$SB_STATE/output.log" l
@@ -145,7 +178,7 @@ _sb_end() {  # <row-state> <note> <label-suffix>
   SB_WDONE=$(_sb_add "$SB_WDONE" "${SB_W:-0}")
   echo "$(date '+%F %T') ${1^^} $SB_IDX/$SB_TOTAL $SB_LABEL${note:+: $note} ($(_sb_fmt "$took"))" >> "$SB_STATE/job.log"
   [ -n "$SB_COLUMNS" ] && [ -n "$SB_IDX" ] && sb_state "$SB_IDX" "$1" "$note"
-  SB_IDX=; SB_LABEL=; SB_W=0; SB_STAGE=
+  SB_IDX=; SB_LABEL=; SB_W=0; SB_M=1; SB_STAGE=
   _sb_put "$SB_STATE/progress" ""; _sb_current; _sb_summary 0
 }
 sb_ok()   { SB_DONE=$((SB_DONE + 1)); _sb_end done "${1:-}"; }
@@ -159,4 +192,33 @@ sb_skip() {
 sb_finish() {
   SB_IDX=; SB_LABEL=; _sb_current; _sb_flush force; _sb_summary 1
   echo "$(date '+%F %T') FINISHED done=$SB_DONE failed=$SB_FAILED total=$SB_TOTAL" >> "$SB_STATE/job.log"
+}
+
+_sb_load() {  # <state-dir>: rebuild the writer's variables from the state files (used by sb.sh, one command per call)
+  SB_STATE="${1:?state dir}"; [ -f "$SB_STATE/summary.env" ] || { echo "status-board: no job in $SB_STATE (run init first)" >&2; return 1; }
+  local k v line idx st rest
+  SB_TITLE=job; SB_TOTAL=0; SB_WTOTAL=0; SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_STARTED=0
+  SB_LAST=; SB_STOP=; SB_WEXPLICIT=0; SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=
+  SB_COLUMNS=; SB_FLUSHED=-1; SB_RS=(); SB_RC=(); SB_ORDER=()
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    case "$k" in
+      TITLE) SB_TITLE=$v;; TOTAL) SB_TOTAL=$v;; WEIGHT_TOTAL) SB_WTOTAL=$v;; DONE) SB_DONE=$v;; FAILED) SB_FAILED=$v;;
+      WARNED) SB_WARNED=$v;; SKIPPED) SB_SKIPPED=$v;; WEIGHT_DONE) SB_WDONE=$v;; STARTED) SB_STARTED=$v;; LAST) SB_LAST=$v;;
+      STOP) SB_STOP=$v;; SLOW_AFTER) SB_SLOW_AFTER=$v;; STALL_AFTER) SB_STALL_AFTER=$v;; WEIGHT_EXPLICIT) SB_WEXPLICIT=$v;;
+    esac
+  done < "$SB_STATE/summary.env"
+  if [ -f "$SB_STATE/current.env" ]; then
+    while IFS='=' read -r k v || [ -n "$k" ]; do
+      case "$k" in IDX) SB_IDX=$v;; NAME) SB_LABEL=$v;; WEIGHT) SB_W=$v;; ITEM_WEIGHT) SB_WI=$v;; MEASURABLE) SB_M=$v;;
+        STAGE) SB_STAGE=$v;; ITEM_START) SB_T0=$v;; esac
+    done < "$SB_STATE/current.env"
+  fi
+  if [ -f "$SB_STATE/items.tsv" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      if [[ $line == "#COLUMNS"$'\t'* ]]; then SB_COLUMNS=${line#"#COLUMNS"$'\t'}; continue; fi
+      [[ -z $line || $line == '#'* ]] && continue
+      IFS=$'\t' read -r idx st rest <<<"$line"
+      SB_ORDER+=("$idx"); SB_RS[$idx]=$st; SB_RC[$idx]=${rest//$'\t'/$SB_US}
+    done < "$SB_STATE/items.tsv"
+  fi
 }

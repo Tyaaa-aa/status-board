@@ -127,6 +127,62 @@ has "$out" "Running: Both (4 items)" "howto running line"
 S=$T/eleven; sb_init "$S" "No table" 3; sb_start 1 a; sb_ok
 out=$(view "$S"); has "$out" "1/3 done" "board without items.tsv"; hasnt "$out" "Status" "no table header"
 
+# 13. one item: compact layout (one progress line, Details instead of a one-row table)
+S=$T/single; sb_init "$S" "One thing" 1 "kill 1"; sb_cols "File" "Size" "Note"; sb_item 1 big.iso "4 GB" -
+sb_start 1 big.iso; sb_stage copying; sb_progress 0.25 "80 MB/s"
+out=$(view "$S")
+has "$out" "NOW      big.iso  [copying]" "single NOW line"; has "$out" " 25%" "single progress %"
+has "$out" "Details  Size 4 GB" "cells become Details (name and placeholders left out)"
+hasnt "$out" "Overall" "no separate overall bar"; hasnt "$out" "Status" "no one-row table"; hasnt "$out" "(1/1)" "no 1/1 counter"
+sb_ok; sb_finish; out=$(view "$S")
+has "$out" "100%" "single finished"; has "$out" "ETA done" "single eta done"; has "$out" "Details  File big.iso · Size 4 GB" "details after finish"
+
+# 14. progress that cannot be measured: dashes and plain words, never a fake 0% or "calculating"
+S=$T/unknown; sb_init "$S" "No total" 1 "kill 1"; sb_start 1 export "?"; sb_stage encoding; sb_count "54 MB written"
+out=$(view "$S")
+has "$out" "no % available" "unknown bar text"; has "$out" "ETA unknown - no % available" "unknown ETA says why"
+has "$out" "54 MB written" "count shown"; hasnt "$out" "0%" "no fake 0%"; hasnt "$out" "calculating" "never 'calculating'"
+S=$T/unknown2; sb_init "$S" "No total, batch" 3 "kill 1"; sb_cols "Shot"; sb_item 1 a; sb_item 2 b; sb_item 3 c
+sb_start 1 a "?"; sb_stage rendering; out=$(view "$S")
+has "$out" "unknown until the first item finishes" "batch ETA before any item is done"
+has "$out" "▶ rendering" "row stage"; hasnt "$out" "▶ rendering 0%" "no % on an unmeasurable row"
+sb_ok; sb_start 2 b; out=$(view "$S")
+has "$out" "no % reported yet" "item that has reported nothing yet"; hasnt "$out" "calculating" "never 'calculating' (batch)"
+sb_progress 0; has "$(view "$S")" "not enough progress yet" "measurable but too early"
+for w in 40 50 64; do
+  out=$(view "$T/unknown" "$w"); long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
+  [ -z "$long" ] && ok || bad "unknown layout fits a $w-column terminal" "$long"
+  out=$(view "$T/single" "$w"); long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
+  [ -z "$long" ] && ok || bad "single layout fits a $w-column terminal" "$long"
+done
+
+# 15. a reported percentage and ETA (sb_pct) win, survive sb_progress, and the ETA counts down
+S=$T/pct; sb_init "$S" "Reported" 1 "kill 1"; sb_start 1 render "?"; sb_count "54 MB written"; sb_pct 26 "21:00 left"
+out=$(view "$S"); has "$out" " 26%" "reported %"; grep -qE 'ETA ~(21:00|20:5[89])' <<<"$out" && ok || bad "reported ETA" "$out"
+hasnt "$out" "no % available" "a reported % makes it measurable"
+sb_progress 0 "1 MB/s"; out=$(view "$S"); has "$out" " 26%" "sb_progress keeps the reported %"; has "$out" "rate 1 MB/s" "rate added"
+has "$out" "54 MB written" "count kept"
+touch -d "@$(( $(date +%s) - 60 ))" "$S/progress"; grep -qE 'ETA ~(20:00|19:5[89])' <<<"$(view "$S")" && ok || bad "ETA counts down" "$(view "$S")"
+sb_pct junk 2>/dev/null && bad "sb_pct rejects a non-number" || ok
+sb_pct 50 soon 2>/dev/null && bad "sb_pct rejects a non-duration" || ok
+
+# 16. sb.sh: one command per update, state kept in the files
+SBX="$here/skills/status-board/scripts/sb.sh"
+S=$T/cli
+"$SBX" "$S" init "From outside" 2 "cancel in the app"
+[ -e "$S/job.pid" ] && bad "sb.sh init without SB_WATCH_PID writes no pid" || ok
+"$SBX" "$S" cols "Item" "Result"; "$SBX" "$S" item 1 one -; "$SBX" "$S" item 2 two -
+"$SBX" "$S" start 1 one; "$SBX" "$S" stage working; "$SBX" "$S" pct 40 90
+out=$(view "$S"); has "$out" "NOW (1/2)  one  [working]" "cli start/stage"; has "$out" " 40%" "cli pct"
+hasnt "$out" "NOT RUNNING" "no pid: health from updates only"; has "$out" "Stop     cancel in the app" "cli stop"
+"$SBX" "$S" cell 1 2 fine; "$SBX" "$S" ok "fine"; "$SBX" "$S" start 2 two; "$SBX" "$S" fail "app crashed"; "$SBX" "$S" finish
+out=$(view "$S"); has "$out" "FINISHED" "cli finish"; has "$out" "1/2 done, 1 failed" "cli counts"; has "$out" "✖ app crashed" "cli fail reason"
+( exit 0 ) & dead=$!; wait "$dead"
+SB_WATCH_PID=$dead "$SBX" "$T/cli2" init "Watched" 1; "$SBX" "$T/cli2" start 1 x
+out=$(view "$T/cli2"); has "$out" "NOT RUNNING" "SB_WATCH_PID: exit of the watched process shows"
+grep -q '^STOP=$' "$T/cli2/summary.env" && ok || bad "no default stop that would kill the watched process" "$(cat "$T/cli2/summary.env")"
+"$SBX" "$T/nope" ok 2>/dev/null && bad "sb.sh before init fails" || ok
+
 # 12. post-bash hook: one notice per job, only in the session that started it
 HOOK="$here/hooks/post-bash.sh"
 hook() { printf '{"session_id":"%s","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1" "$2" | CLAUDE_PLUGIN_ROOT="$here" bash "$HOOK"; }

@@ -49,11 +49,22 @@ cut_to() { local s=$1 w=$2; ((${#s} > w)) && s="${s:0:w-1}…"; CUT=$s; }
 # bar <pct> <width> <colour> -> BAR
 bar()   { local p=$1 w=$2 f fs es; ((p < 0)) && p=0; ((p > 100)) && p=100; f=$((p*w/100))
           printf -v fs '%*s' "$f" ''; printf -v es '%*s' $((w-f)) ''; BAR="$3${fs// /█}$N$D${es// /░}$N"; }
+# nobar <width> <text> -> BAR: dim dashes with the reason in the middle, for progress that has no percentage
+nobar() { local w=$1 t=" $2 " l r s; ((${#t} + 4 > w)) && t=
+          l=$(( (w - ${#t}) / 2 )); r=$((w - ${#t} - l)); printf -v s '%*s' "$l" ''; BAR="${s// /╌}$t"
+          printf -v s '%*s' "$r" ''; BAR="$D$BAR${s// /╌}$N"; }
+# secs <text> -> SECS: "90", "1:30", "1:02:03" -> seconds; returns 1 if it is not a duration
+secs()  { local t=${1//[!0-9:]/}; SECS=
+          if [[ $t =~ ^[0-9]+$ ]]; then SECS=$((10#$t))
+          elif [[ $t =~ ^([0-9]+):([0-9]{1,2})$ ]]; then SECS=$((10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]}))
+          elif [[ $t =~ ^([0-9]+):([0-9]{1,2}):([0-9]{1,2})$ ]]; then
+            SECS=$((10#${BASH_REMATCH[1]} * 3600 + 10#${BASH_REMATCH[2]} * 60 + 10#${BASH_REMATCH[3]}))
+          else return 1; fi; }
 # readkv <file>: KEY=value lines -> known variables only (never sourced, so nothing in the file is executed)
 readkv() { local k v; [ -f "$1" ] || return 0
            while IFS='=' read -r k v || [ -n "$k" ]; do
              case "$k" in TITLE|TOTAL|DONE|FAILED|WARNED|SKIPPED|WEIGHT_TOTAL|WEIGHT_DONE|STARTED|FINISHED|LAST|STOP|\
-SLOW_AFTER|STALL_AFTER|IDX|NAME|WEIGHT|STAGE|ITEM_START) printf -v "$k" '%s' "${v%$'\r'}";; esac
+SLOW_AFTER|STALL_AFTER|IDX|NAME|WEIGHT|STAGE|ITEM_START|MEASURABLE) printf -v "$k" '%s' "${v%$'\r'}";; esac
            done < "$1"; }
 
 if ((howto)); then
@@ -63,7 +74,8 @@ if ((howto)); then
   q() { printf '%q' "$1"; }
   echo "Running: ${TITLE:-job} (${TOTAL} items)"
   echo "Watch:   bash $(q "$self") $(q "$st")"
-  echo "Stop:    ${STOP:-kill $(head -n 1 "$STATE/job.pid" 2>/dev/null)}"
+  pid=$(head -n 1 "$STATE/job.pid" 2>/dev/null)
+  echo "Stop:    ${STOP:-${pid:+kill $pid}}"
   exit 0
 fi
 
@@ -75,7 +87,7 @@ fi
 
 while :; do
   TITLE=; TOTAL=0; DONE=0; FAILED=0; WARNED=0; SKIPPED=0; WEIGHT_TOTAL=0; WEIGHT_DONE=0; STARTED=0; FINISHED=0
-  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0
+  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0; MEASURABLE=1
   readkv "$STATE/summary.env"; readkv "$STATE/current.env"
   for v in TOTAL DONE FAILED WARNED SKIPPED STARTED FINISHED ITEM_START SLOW_AFTER STALL_AFTER; do
     [[ ${!v} =~ ^[0-9]+$ ]] || printf -v "$v" 0; done
@@ -95,14 +107,20 @@ while :; do
     L+=("${B}status-board${N}" "$RULE" "${D}Waiting for job state in${N} $STATE ${D}(no summary.env yet)${N}")
   else
     # ---- progress, freshness, liveness ----
-    done_w=0; rate=; out_line=
+    done_w=0; rate=; out_line=; have_done=0; pct_r=; eta_r=-1; count=
     if [ -f "$STATE/progress" ]; then
       blk=$(tail -n 20 "$STATE/progress")
+      pa=$((now - $(mtime "$STATE/progress"))); ((pa < 0)) && pa=0
+      p=$(sed -n 's/^pct=//p' <<<"$blk" | tail -n 1); p=${p%\%}
+      isnum "$p" && pct_r=$(awk -v p="$p" 'BEGIN{ if (p > 100) p = 100; printf "%d", p }')
+      e=$(sed -n 's/^eta=//p' <<<"$blk" | tail -n 1)
+      [ -n "$e" ] && secs "$e" && { eta_r=$((SECS - pa)); ((eta_r < 0)) && eta_r=0; }   # counts down between reports
+      count=$(sed -n 's/^count=//p' <<<"$blk" | tail -n 1)
       dn=$(sed -n 's/^done=//p' <<<"$blk" | tail -n 1)
       if [ -z "$dn" ]; then   # tools that write ffmpeg-style -progress files
         us=$(sed -n 's/^out_time_us=//p' <<<"$blk" | tail -n 1); isnum "$us" && dn=$(awk -v u="$us" 'BEGIN{printf "%.3f", u/1e6}')
       fi
-      isnum "$dn" && done_w=$dn
+      isnum "$dn" && { done_w=$dn; have_done=1; }
       rate=$(sed -n 's/^rate=//p; s/^speed=//p' <<<"$blk" | tail -n 1); rate=${rate## }
       case "$rate" in ''|0|0x|0.0|0.0x|0.00x|N/A) rate=;; esac
     fi
@@ -110,22 +128,34 @@ while :; do
     for f in progress current.env summary.env items.tsv output.log; do
       [ -e "$STATE/$f" ] && { t=$(mtime "$STATE/$f"); ((t > newest)) && newest=$t; }; done
     age=$((now - newest)); ((age < 0)) && age=0
-    alive=0; [ -f "$STATE/job.pid" ] && kill -0 "$(head -n 1 "$STATE/job.pid")" 2>/dev/null && alive=1
+    # no job.pid = no process to watch (e.g. a board driven by sb.sh); health then comes from fresh updates alone
+    alive=1; [ -s "$STATE/job.pid" ] && { kill -0 "$(head -n 1 "$STATE/job.pid")" 2>/dev/null || alive=0; }
     [ -s "$STATE/output.log" ] && out_line=$(tail -n 1 "$STATE/output.log" | tr -d '\r' | tr -c '[:print:]' ' ')
 
     inflight=0; [ "$FINISHED" != 1 ] && [ -n "$NAME" ] && inflight=1
     el=0; ((STARTED > 0)) && el=$((now - STARTED)); ((el < 0)) && el=0
     iel=0; ((ITEM_START > 0)) && iel=$((now - ITEM_START)); ((iel < 0)) && iel=0
+    # what is known about the current item: 2 = a percentage, 1 = nothing reported yet, 0 = cannot be measured
+    known=2
+    if ((inflight)) && [ -z "$pct_r" ]; then
+      if [ "$MEASURABLE" = 0 ]; then known=0; elif ((have_done == 0)) || [ "$WEIGHT" = 0 ]; then known=1; fi
+    fi
+    single=0; ((TOTAL == 1)) && single=1
     read -r all_pct cur_pct all_eta cur_eta < <(awk -v wd="$WEIGHT_DONE" -v wt="$WEIGHT_TOTAL" -v cw="$WEIGHT" \
-      -v cd="$done_w" -v dn="$DONE" -v fl="$FAILED" -v tot="$TOTAL" -v inf="$inflight" -v el="$el" -v iel="$iel" 'BEGIN{
+      -v cd="$done_w" -v dn="$DONE" -v fl="$FAILED" -v tot="$TOTAL" -v inf="$inflight" -v el="$el" -v iel="$iel" \
+      -v pr="${pct_r:--1}" 'BEGIN{
         if (!inf) cd = 0; if (cw > 0 && cd > cw) cd = cw
-        ip = (inf && cw > 0) ? 100*cd/cw : 0
+        if (inf && pr >= 0) { ip = pr; cd = (cw > 0 ? cw : 1) * pr / 100 } else ip = (inf && cw > 0) ? 100*cd/cw : 0
         if (wt > 0) ap = 100*(wd+cd)/wt; else if (tot > 0) ap = 100*(dn+fl)/tot; else ap = 0
         if (ap > 100) ap = 100
         ae = (ap >= 1 && ap < 100) ? el*(100-ap)/ap : 0
         ie = (ip >= 1 && ip < 100) ? iel*(100-ip)/ip : 0
         printf "%d %d %d %d\n", ap, ip, ae, ie }')
     [ "$FINISHED" = 1 ] && all_pct=100
+    ((inflight && eta_r >= 0)) && cur_eta=$eta_r            # the tool's own ETA beats extrapolation
+    ((single && inflight)) && { all_pct=$cur_pct; all_eta=$cur_eta; }
+    # why there is no number, in plain words (never "calculating" when nothing is being calculated)
+    case "$known" in 0) why="no % available";; 1) why="no % reported yet";; *) why=; esac
 
     # health: full sentence if it fits, else the short form
     if   [ "$FINISHED" = 1 ]; then
@@ -144,6 +174,56 @@ while :; do
 
     # ---- fixed header ----
     cut_to "${TITLE:-job}" "$W"; L+=("$B$CUT$N" "$RULE")
+    # optional parts after a progress bar, most useful first; a part is dropped if it would not fit on the line
+    # eta_line <text> <short text>: the elapsed/ETA line, with the short wording when the long one does not fit
+    eta_line() { local t=$1 el_t; el_t=$(fmt "$el"); ((9 + 8 + ${#el_t} + 7 + ${#t} > W)) && t=$2
+                 L+=("         ${D}elapsed${N} $el_t   ${D}ETA${N} $B$t$N"); }
+    extras() { local k; for k in "${!extra[@]}"; do
+                 ((used + 3 + ${#plain[k]} > W)) && continue
+                 ln+="   ${extra[k]}"; used=$((used + 3 + ${#plain[k]})); done; }
+    if ((single)); then
+      # one item: one progress line, no repeated bar, no one-row table (its cells become the Details line)
+      BW=$((W - 9 - 2 - 5)); ((BW > 30)) && BW=30; ((BW < 5)) && BW=5
+      if ((inflight)); then
+        pre="NOW      "; room=$((W - ${#pre} - 4))
+        cut_to "$NAME" $(( room * 2 / 3 > 8 ? room * 2 / 3 : 8 )); nm=$CUT
+        sr=$((room - ${#nm})); ((sr > 30)) && sr=30; ((sr < 3)) && sr=3; cut_to "${STAGE:-running}" "$sr"
+        L+=("${D}NOW${N}      $C$nm$N  ${D}[$CUT]${N}")
+      fi
+      if ((inflight && known < 2)); then nobar "$BW" "$why"; ln="${D}Progress${N} [$BAR]"; used=$((9 + BW + 2))
+      else bar "$all_pct" "$BW" "$bc"; ln="${D}Progress${N} [$BAR] $B$(printf '%3d' "$all_pct")%$N"; used=$((9 + BW + 2 + 5)); fi
+      extra=(); plain=()
+      if ((inflight)); then
+        [ -n "$count" ] && { cut_to "$count" 24; extra+=("$B$CUT$N"); plain+=("$CUT"); }
+        [ -n "$rate" ] && { cut_to "$rate" 16; extra+=("${D}rate${N} $B$CUT$N"); plain+=("rate $CUT"); }
+      fi
+      extras; L+=("$ln")
+      if [ "$FINISHED" = 1 ] || ((!inflight && DONE + FAILED > 0)); then eta_line done done
+      elif ((!inflight)); then eta_line "not started" "not started"
+      elif ((cur_eta > 0 || eta_r == 0)); then e="~$(fmt "$cur_eta")"; eta_line "$e" "$e"
+      elif ((known < 2)); then eta_line "unknown - $why" unknown
+      else eta_line "not enough progress yet" "too early"; fi
+      # Details: the item's table cells, minus placeholders and the item name already shown above
+      if [ -f "$STATE/items.tsv" ]; then
+        hd=(); cl=(); det=; detp=
+        while IFS= read -r line || [ -n "$line" ]; do
+          line=${line%$'\r'}; line=${line//$'\t'/$US}
+          if [[ $line == "#COLUMNS$US"* ]]; then IFS=$US read -ra hd <<<"${line#"#COLUMNS$US"}"; continue; fi
+          [[ -z $line || $line == '#'* ]] && continue
+          IFS=$US read -r _ _ f_rest <<<"$line"; IFS=$US read -ra cl <<<"$f_rest"; break
+        done < "$STATE/items.tsv"
+        for k in "${!cl[@]}"; do
+          v=${cl[k]}; [[ -z $v || $v == - || $v == "$NAME" ]] && continue
+          h=${hd[k]:-}; h=${h#@}
+          detp+="${detp:+ · }${h:+$h }$v"; det+="${det:+$D · $N}${h:+$D$h$N }$v"
+        done
+        if [ -n "$detp" ]; then
+          if ((${#detp} > W - 9)); then cut_to "$detp" $((W - 9)); det=$CUT; fi
+          L+=("${D}Details${N}  $det")
+        fi
+      fi
+      [ "$FINISHED" != 1 ] && [ -n "$out_line" ] && { cut_to "$out_line" $((W - 9)); L+=("${D}Output   $CUT$N"); }
+    else
     fails=""; fp=""; ((FAILED > 0)) && { fails=", ${R}${FAILED} failed${N}"; fp=", $FAILED failed"; }
     warns=""; wp=""; ((WARNED > 0)) && { warns=", ${Y}${WARNED} warned${N}"; wp=", $WARNED warned"; }
     tail_p="$DONE/$TOTAL done$fp$wp"
@@ -153,30 +233,28 @@ while :; do
     if [[ $tail_p == *done* ]]; then dt="$DONE/$TOTAL done"; else dt="$DONE/$TOTAL"; fi
     printf -v ln '%sOverall%s  [%s] %s%3d%%%s   %s%s%s%s%s' "$D" "$N" "$BAR" "$B" "$all_pct" "$N" "$G" "$dt" "$N" "$fails" "$warns"
     L+=("$ln")
-    if [ "$FINISHED" = 1 ]; then eta=done; elif ((all_eta > 0)); then eta="~$(fmt "$all_eta")"; else eta=calculating; fi
-    L+=("         ${D}elapsed${N} $(fmt "$el")   ${D}ETA${N} $B$eta$N")
+    if [ "$FINISHED" = 1 ]; then eta_line done done; elif ((all_eta > 0)); then e="~$(fmt "$all_eta")"; eta_line "$e" "$e"
+    elif ((DONE + FAILED + SKIPPED == 0 && known < 2)); then eta_line "unknown until the first item finishes" "unknown yet"
+    else eta_line "not enough progress yet" "too early"; fi
     if [ "$FINISHED" != 1 ]; then
       if ((inflight)); then
         pre="NOW ($IDX/$TOTAL)  "; room=$((W - ${#pre} - 4))
         cut_to "$NAME" $(( room * 2 / 3 > 8 ? room * 2 / 3 : 8 )); nm=$CUT
         sr=$((room - ${#nm})); ((sr > 30)) && sr=30; ((sr < 3)) && sr=3; cut_to "${STAGE:-running}" "$sr"
         L+=("${D}NOW${N} ${D}(${IDX}/${TOTAL})${N}  $C$nm$N  ${D}[$CUT]${N}")
-        bar "$cur_pct" "$BW" "$C"
-        ln="         [$BAR] $B$(printf '%3d' "$cur_pct")%$N"; used=$((9 + BW + 2 + 5))
-        # optional parts, most useful first; a part is dropped if it would not fit on the line
+        if ((known < 2)); then nobar "$BW" "$why"; ln="         [$BAR]"; used=$((9 + BW + 2))
+        else bar "$cur_pct" "$BW" "$C"; ln="         [$BAR] $B$(printf '%3d' "$cur_pct")%$N"; used=$((9 + BW + 2 + 5)); fi
         extra=(); plain=()
+        [ -n "$count" ] && { cut_to "$count" 24; extra+=("$B$CUT$N"); plain+=("$CUT"); }
         [ -n "$rate" ] && { cut_to "$rate" 16; extra+=("${D}rate${N} $B$CUT$N"); plain+=("rate $CUT"); }
         ((cur_eta > 0)) && { e=$(fmt "$cur_eta"); extra+=("${D}item ETA${N} ~$e"); plain+=("item ETA ~$e"); }
         e=$(fmt "$iel"); extra+=("${D}running${N} $e"); plain+=("running $e")
-        for k in "${!extra[@]}"; do
-          ((used + 3 + ${#plain[k]} > W)) && continue
-          ln+="   ${extra[k]}"; used=$((used + 3 + ${#plain[k]}))
-        done
-        L+=("$ln")
+        extras; L+=("$ln")
       else
         L+=("${D}NOW      between items${N}")
       fi
       [ -n "$out_line" ] && { cut_to "$out_line" $((W - 9)); L+=("${D}Output   $CUT$N"); }
+    fi
     fi
     L+=("${D}Health${N}   $health")
     [ -n "$LAST" ] && { cut_to "$LAST" $((W - 9)); L+=("${D}Last${N}     $CUT"); }
@@ -184,7 +262,7 @@ while :; do
 
     # ---- item table: columns come from the job ----
     cols=(); R_idx=(); R_st=(); R_det=(); CELL=(); nrows=0; ncols=0; curpos=-1
-    if [ -f "$STATE/items.tsv" ]; then
+    if ((single == 0)) && [ -f "$STATE/items.tsv" ]; then
       while IFS= read -r line || [ -n "$line" ]; do
         line=${line%$'\r'}; line=${line//$'\t'/$US}
         if [[ $line == "#COLUMNS$US"* ]]; then IFS=$US read -ra cols <<<"${line#"#COLUMNS$US"}"; continue; fi
@@ -211,7 +289,7 @@ while :; do
         case "${R_st[r]}" in
           done) t="✔ ${d:-done}";; fail) t="✖ ${d:-failed}";; warn) t="! ${d:-warning}";; skip) t="– ${d:-skipped}";;
           run)  t="▶ ${d:-running}"
-                if ((inflight)) && [ "${R_idx[r]}" = "$IDX" ] && isnum "$WEIGHT" && [ "$WEIGHT" != 0 ] && [[ $d != *%* ]]; then t+=" ${cur_pct}%"; fi;;
+                if ((inflight && known == 2)) && [ "${R_idx[r]}" = "$IDX" ] && [[ $d != *%* ]]; then t+=" ${cur_pct}%"; fi;;
           *)    t="· ${d:-queued}";;
         esac
         ST[r]=$t; ((${#t} > stw)) && stw=${#t}
