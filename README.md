@@ -117,6 +117,7 @@ when output is not a terminal unless `FORCE_COLOR=1`.
 | `skills/status-board/scripts/job-status.sh` | the viewer (`--once` prints one plain frame) |
 | `skills/status-board/examples/demo.sh` | two fake jobs |
 | `tests/run.sh` | test suite |
+| `tests/fresh-session.sh` | behaviour test: does a fresh Claude session use the board unasked? (costs tokens) |
 
 ## License
 

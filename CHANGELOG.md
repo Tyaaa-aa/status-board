@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+- `job-status.sh --howto <state>` prints a ready-to-paste "Running / Watch / Stop" message.
+- The skill gives Claude a literal message template built from `--howto` (fresh-session tests showed it
+  reporting progress but leaving out the watch and stop commands).
+- `tests/fresh-session.sh`: behaviour test in fresh `claude -p` sessions (skill only vs. plugin with hook).
+
 ## 1.2.3
 - Clearer rule: the watch/stop message must be written to the user as normal text right after the job starts,
   before waiting on it (a fresh-session test showed it only being echoed inside a command).

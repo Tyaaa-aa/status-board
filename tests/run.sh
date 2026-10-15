@@ -112,6 +112,10 @@ out=$(view "$S"); has "$out" "Stop     pkill -f my-job" "stop command as 4th arg
 grep -q '^WEIGHT_TOTAL=4$' "$S/summary.env" && ok || bad "weight falls back to item count" "$(cat "$S/summary.env")"
 sb_init "$S" "Both" 4 10 "kill 1"; grep -q '^WEIGHT_TOTAL=10$' "$S/summary.env" && grep -q '^STOP=kill 1$' "$S/summary.env" && ok || bad "weight + stop"
 
+# 11c. --howto gives a pasteable watch/stop message
+out=$(bash "$VIEW" --howto "$S"); has "$out" "Watch:   bash " "howto watch line"; has "$out" "Stop:    kill 1" "howto stop line"
+has "$out" "Running: Both (4 items)" "howto running line"
+
 # 11. no table at all still renders a board
 S=$T/eleven; sb_init "$S" "No table" 3; sb_start 1 a; sb_ok
 out=$(view "$S"); has "$out" "1/3 done" "board without items.tsv"; hasnt "$out" "Status" "no table header"

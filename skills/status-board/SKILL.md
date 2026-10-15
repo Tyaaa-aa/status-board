@@ -35,13 +35,17 @@ table columns are chosen for each job. Paths below are relative to this skill's 
      Never run the live viewer through your own shell tool: it loops until the job ends and its output is hidden.
    - Either way, `bash "<skill-dir>/scripts/job-status.sh" --once "$STATE"` prints one plain frame. Use it to check
      the job yourself, and paste a frame into chat at meaningful moments if the user cannot see a live board.
-4. **Required: right after starting the job and before you wait on it or do anything else**, write a short message
-   to the user as normal reply text (not only inside a command or its output) with:
-   - what is running and roughly how long it will take;
-   - where to watch it: the terminal tab you opened, or the exact viewer command to paste into a second terminal;
-   - the exact stop command.
-   When the job ends, report the outcome yourself (key lines of the final `--once` frame: done, failed, which
-   items). The user should never have to ask for status.
+4. **Required: tell the user how to watch and stop it.** Right after starting the job, run
+   `bash "<skill-dir>/scripts/job-status.sh" --howto "$STATE"`. Then, before you wait on the job or do anything
+   else, write a message to the user as normal reply text that includes its output, in this shape:
+
+   > Started: <what is running>, about <duration>.
+   > Watch: <the terminal tab you opened, or the `Watch:` command from --howto to paste into a second terminal>
+   > Stop: <the `Stop:` command from --howto>
+
+   Do not skip this when the job is short or the session is non-interactive; output inside a tool call is not
+   seen by the user. When the job ends, report the outcome yourself (key lines of the final `--once` frame:
+   done, failed, which items). The user should never have to ask for status.
 
 `examples/demo.sh tests` and `examples/demo.sh downloads` run two fake jobs with different columns.
 Requires bash 4.2+, awk, sed, tput.

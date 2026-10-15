@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # status-board viewer: a live, colour-coded board for any long-running job.
 #
-# Usage:  job-status.sh [--once] <state-dir> [refresh-seconds]
+# Usage:  job-status.sh [--once|--howto] <state-dir> [refresh-seconds]
 #   --once       print one frame without cursor control and exit (for scripts, tests and agents)
+#   --howto      print a ready-to-paste "how to watch / how to stop" message for the user and exit
 #   NO_COLOR=1   disable colour (symbols and layout still carry the meaning); colour is also off when the output
 #                is not a terminal, unless FORCE_COLOR=1
 # Keys:   ↑/↓ or k/j scroll · PgUp/PgDn page · g/G top/bottom · f follow the current item · q quit (job keeps running)
@@ -13,8 +14,9 @@
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
   echo "status-board: needs bash 4 or newer (macOS: brew install bash)" >&2; exit 1
 fi
-once=0; [ "${1:-}" = --once ] && { once=1; shift; }
-STATE="${1:?usage: job-status.sh [--once] <state-dir> [refresh-seconds]}"; EVERY="${2:-2}"
+once=0; howto=0
+case "${1:-}" in --once) once=1; shift;; --howto) howto=1; shift;; esac
+STATE="${1:?usage: job-status.sh [--once|--howto] <state-dir> [refresh-seconds]}"; EVERY="${2:-2}"
 [[ $EVERY =~ ^[0-9]+([.][0-9]+)?$ ]] || EVERY=2
 case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) { export LC_ALL=C.UTF-8; } 2>/dev/null;; esac
 
@@ -53,6 +55,17 @@ readkv() { local k v; [ -f "$1" ] || return 0
              case "$k" in TITLE|TOTAL|DONE|FAILED|WARNED|SKIPPED|WEIGHT_TOTAL|WEIGHT_DONE|STARTED|FINISHED|LAST|STOP|\
 SLOW_AFTER|STALL_AFTER|IDX|NAME|WEIGHT|STAGE|ITEM_START) printf -v "$k" '%s' "${v%$'\r'}";; esac
            done < "$1"; }
+
+if ((howto)); then
+  TITLE=; TOTAL=0; STOP=; readkv "$STATE/summary.env"
+  self=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
+  st=$(cd "$STATE" 2>/dev/null && pwd) || st=$STATE
+  q() { printf '%q' "$1"; }
+  echo "Running: ${TITLE:-job} (${TOTAL} items)"
+  echo "Watch:   bash $(q "$self") $(q "$st")"
+  echo "Stop:    ${STOP:-kill $(head -n 1 "$STATE/job.pid" 2>/dev/null)}"
+  exit 0
+fi
 
 declare -A tagc=(); tagn=0
 follow=1; off=0; avail=10
