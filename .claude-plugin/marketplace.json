@@ -1,0 +1,12 @@
+{
+  "name": "status-board",
+  "owner": { "name": "Tyaaa-aa", "url": "https://github.com/Tyaaa-aa" },
+  "description": "Live colour-coded terminal board for long-running jobs.",
+  "plugins": [
+    {
+      "name": "status-board",
+      "source": "./",
+      "description": "Live colour-coded terminal board for long-running jobs: progress, ETA, health, stop command, and an item table whose columns each job chooses."
+    }
+  ]
+}
