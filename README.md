@@ -1,8 +1,9 @@
 # status-board
 
 A Claude Code plugin that shows long-running jobs as a live, colour-coded board in the terminal instead of a
-wall of log lines: what is running now, overall and per-item progress, ETA, health (OK / slow / stalled / not
-running) and the exact command to stop it.
+wall of log lines: what is running now, overall and per-item progress, ETA, health and the exact command to
+stop it. It only states what it knows: "no progress for 5:00", never a guessed "stalled"; "no % available" or
+"ETA unknown" with the reason, never a fake 0% or "calculating".
 
 The layout, colours and health rules never change. **The table does**: each job picks its own columns.
 Two fake jobs from `examples/demo.sh`:
@@ -72,6 +73,17 @@ When the app doing the work reports its own percentage and time left, those go o
 ```
 Progress [███████░░░░░░░░░░░░░░░░░░░░░░░]  26%   54 MB written   rate 0.4 MB/s
          elapsed 12:31   ETA ~21:00
+Health   ● OK - last reading 12s ago (next check ~14:03)
+```
+
+If only Claude can read that progress (say, through the app's MCP tools), Claude asks whether to keep checking
+on a schedule that fits the job, with a few interval choices. When nobody is checking any more, the board says
+so in grey and keeps the last reading with its time, instead of calling the job stuck:
+
+```
+Progress [███████░░░░░░░░░░░░░░░░░░░░░░░]  26%   at 14:02   54 MB written
+         elapsed 12:31   ETA around 14:23 (app's estimate at 14:02)
+Health   ● NOT WATCHED - Claude stopped checking; last reading 3 min ago. Ask Claude for an update
 ```
 
 ## Install
@@ -141,6 +153,7 @@ From outside a script (one command per update, e.g. progress read from an app):
 sb=skills/status-board/scripts/sb.sh
 $sb /tmp/export init "Export: final cut" 1 "cancel it in the app"
 $sb /tmp/export start 1 "final cut.mp4"; $sb /tmp/export pct 26 21:00
+$sb /tmp/export unwatched                         # nobody will check again: NOT WATCHED, not "stuck"
 $sb /tmp/export ok; $sb /tmp/export finish
 ```
 

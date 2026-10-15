@@ -12,6 +12,9 @@
 #   sb_progress <done-weight> ["<rate>"]       progress inside the current item; rate is free text ("12 MB/s")
 #   sb_pct      <percent> [eta]                progress as the tool/app itself reports it (eta: seconds or m:ss)
 #   sb_count    "<text>"                       what has happened so far when there is no total ("54 MB written")
+#   sb_watch    <seconds>                      readings come from someone checking every <seconds> (e.g. Claude
+#                                              polling an app): health then follows that schedule
+#   sb_unwatched                               nobody is checking any more: the board says NOT WATCHED (grey)
 #   sb_track    <expected-lines> -- cmd ...    run cmd, count its output lines as progress, return its exit code
 #   sb_cell     <idx> <column-number> "value"  change one cell (1-based) at any time
 #   sb_ok       ["<note>"]                     the current item finished OK
@@ -25,7 +28,8 @@
 # From outside a job script (one command per update, e.g. progress Claude reads through an app's tools): sb.sh.
 #
 # Optional, set before sb_init: SB_SLOW_AFTER=15 SB_STALL_AFTER=60 (seconds without progress before the board
-# says SLOW? / STALLED?). Raise them for jobs with long silent steps.
+# says NO PROGRESS in yellow / red). Raise them for jobs with long silent steps. SB_CHECK_EVERY=<seconds>: same
+# as sb_watch, from the start.
 # Weights are any consistent unit (items, bytes, seconds of media, test cases...); progress % = weight done / total.
 
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 2 ]; }; then
@@ -54,7 +58,7 @@ sb_init() {
   _sb_clean "$stop"; SB_STOP=$SB_V
   SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s)
   SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
-  SB_RS=(); SB_RC=(); SB_ORDER=()
+  SB_RS=(); SB_RC=(); SB_ORDER=(); SB_CHECK=${SB_CHECK_EVERY:-0}; SB_WATCHING=1; SB_FIN=0
   mkdir -p "$SB_STATE" || return 1
   _sb_register
   rm -f "$SB_STATE/items.tsv" "$SB_STATE/output.log"
@@ -84,6 +88,8 @@ STOP=$SB_STOP
 SLOW_AFTER=${SB_SLOW_AFTER:-15}
 STALL_AFTER=${SB_STALL_AFTER:-60}
 WEIGHT_EXPLICIT=$SB_WEXPLICIT
+CHECK_EVERY=${SB_CHECK:-0}
+WATCHING=${SB_WATCHING:-1}
 "
 }
 _sb_current() {
@@ -142,8 +148,18 @@ sb_pct() {  # <percent> [eta]: a percentage (and ETA) reported by the tool doing
   local p=${1:-} e=${2:-}
   [[ $p =~ ^[0-9]+([.][0-9]+)?%?$ ]] || { echo "sb_pct: not a percentage: $p" >&2; return 1; }
   if [ -n "$e" ]; then e=$(_sb_secs "$e") || { echo "sb_pct: not a duration: $2" >&2; return 1; }; fi
-  _sb_prog pct "${p%\%}" eta "$e"; }
-sb_count() { _sb_prog count "${1:-}"; }   # free text for work without a total ("54 MB written", "1200 rows")
+  _sb_reading pct "${p%\%}" eta "$e"; }
+sb_count() { _sb_reading count "${1:-}"; }   # free text for work without a total ("54 MB written", "1200 rows")
+_sb_reading() {  # <key> <value> [...]: a reading; remember when it was taken and since when its value is unchanged
+  local now old since; now=$(date +%s)
+  old=$(sed -n "s/^$1=//p" "$SB_STATE/progress" 2>/dev/null | tail -n 1)
+  since=$(sed -n 's/^since=//p' "$SB_STATE/progress" 2>/dev/null | tail -n 1)
+  _sb_clean "$2"; { [ "$SB_V" != "$old" ] || [ -z "$since" ]; } && since=$now
+  _sb_prog "$@" read "$now" since "$since"; }
+sb_watch() {  # <seconds>: someone takes a reading about this often; health follows that schedule
+  [[ ${1:-} =~ ^[0-9]+$ ]] && (($1 > 0)) || { echo "sb_watch: interval in seconds, e.g. 600" >&2; return 1; }
+  SB_CHECK=$1; SB_WATCHING=1; _sb_summary "${SB_FIN:-0}"; }
+sb_unwatched() { SB_WATCHING=0; _sb_summary "${SB_FIN:-0}"; }
 _sb_secs() {  # "90", "90s", "1:30", "1:02:03", "39:53 left" -> seconds
   local t=${1//[!0-9:]/} a b c
   [[ $t =~ ^[0-9]+$ ]] && { echo "$((10#$t))"; return; }
@@ -152,9 +168,9 @@ _sb_secs() {  # "90", "90s", "1:30", "1:02:03", "39:53 left" -> seconds
     echo $((10#$a * 3600 + 10#$b * 60 + 10#$c)); return; fi
   return 1; }
 _sb_prog() {  # <key> <value> ...: change these keys of the progress file and keep the others (empty value = remove)
-  local -A kv=(); local k v out= ks=(done pct eta count rate)
+  local -A kv=(); local k v out= ks=(done pct eta count rate read since)
   if [ -f "$SB_STATE/progress" ]; then
-    while IFS='=' read -r k v || [ -n "$k" ]; do case "$k" in done|pct|eta|count|rate) kv[$k]=$v;; esac; done < "$SB_STATE/progress"
+    while IFS='=' read -r k v || [ -n "$k" ]; do case "$k" in done|pct|eta|count|rate|read|since) kv[$k]=$v;; esac; done < "$SB_STATE/progress"
   fi
   while (($# >= 2)); do _sb_clean "$2"; kv[$1]=$SB_V; shift 2; done
   for k in "${ks[@]}"; do [ -n "${kv[$k]:-}" ] && out+="$k=${kv[$k]}"$'\n'; done
@@ -190,7 +206,7 @@ sb_skip() {
   _sb_summary 0
 }
 sb_finish() {
-  SB_IDX=; SB_LABEL=; _sb_current; _sb_flush force; _sb_summary 1
+  SB_IDX=; SB_LABEL=; SB_FIN=1; _sb_current; _sb_flush force; _sb_summary 1
   echo "$(date '+%F %T') FINISHED done=$SB_DONE failed=$SB_FAILED total=$SB_TOTAL" >> "$SB_STATE/job.log"
 }
 
@@ -199,12 +215,13 @@ _sb_load() {  # <state-dir>: rebuild the writer's variables from the state files
   local k v line idx st rest
   SB_TITLE=job; SB_TOTAL=0; SB_WTOTAL=0; SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_STARTED=0
   SB_LAST=; SB_STOP=; SB_WEXPLICIT=0; SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=
-  SB_COLUMNS=; SB_FLUSHED=-1; SB_RS=(); SB_RC=(); SB_ORDER=()
+  SB_COLUMNS=; SB_FLUSHED=-1; SB_RS=(); SB_RC=(); SB_ORDER=(); SB_CHECK=0; SB_WATCHING=1; SB_FIN=0
   while IFS='=' read -r k v || [ -n "$k" ]; do
     case "$k" in
       TITLE) SB_TITLE=$v;; TOTAL) SB_TOTAL=$v;; WEIGHT_TOTAL) SB_WTOTAL=$v;; DONE) SB_DONE=$v;; FAILED) SB_FAILED=$v;;
       WARNED) SB_WARNED=$v;; SKIPPED) SB_SKIPPED=$v;; WEIGHT_DONE) SB_WDONE=$v;; STARTED) SB_STARTED=$v;; LAST) SB_LAST=$v;;
       STOP) SB_STOP=$v;; SLOW_AFTER) SB_SLOW_AFTER=$v;; STALL_AFTER) SB_STALL_AFTER=$v;; WEIGHT_EXPLICIT) SB_WEXPLICIT=$v;;
+      CHECK_EVERY) SB_CHECK=$v;; WATCHING) SB_WATCHING=$v;; FINISHED) SB_FIN=$v;;
     esac
   done < "$SB_STATE/summary.env"
   if [ -f "$SB_STATE/current.env" ]; then

@@ -1,6 +1,6 @@
 {
   "name": "status-board",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Live colour-coded terminal board for long-running jobs: progress, ETA, health, stop command, and an item table whose columns each job chooses.",
   "author": {
     "name": "Tyaaa-aa",

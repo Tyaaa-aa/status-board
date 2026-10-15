@@ -88,27 +88,45 @@ forms (`unknown`, `too early`, `unknown yet`).
 | green | done / healthy | `✔` rows, `● OK`, done counts |
 | bold green | finished | `● FINISHED`, the final overall bar |
 | bold cyan | active now | `NOW`, `▸` current row, `▶` status, current bar |
-| yellow | warning / slow | `!` rows, `● SLOW?` |
-| bold red | failed / stalled / not running | `✖` rows, `● STALLED?`, `● NOT RUNNING`, failed count |
-| dim | queued, skipped, labels, secondary | `·` and `–` rows, field labels, hints |
+| yellow | warning, or no progress for a while | `!` rows, `● NO PROGRESS` (short) |
+| bold red | failed / not running / no progress for too long | `✖` rows, `● NO PROGRESS` (long), `● NOT RUNNING`, failed count |
+| dim (grey) | queued, skipped, labels, secondary, nobody watching | `·` and `–` rows, field labels, hints, `● NOT WATCHED` and its stale bar |
 | bold | emphasis | title, column header, percentages, ETA |
 | blue, violet, orange, sage | tag values, in order of first appearance | the `@` column |
 
 Symbols: `✔` done, `▶` running, `·` queued, `!` warning, `✖` failed, `–` skipped, `●` health, `▸` current row.
 `NO_COLOR=1` turns colour off; symbols and layout still carry the meaning.
 
-## Health (from fresh progress, never from "the process exists")
+## Health (only what the board actually knows)
+
+Health never guesses what silence means. "No progress for 5:00" is a fact; "stalled" or "hung" would be a guess
+(a long silent step is not a hang), so the board never says it.
+
+A job that reports its own progress (a script using `sb-lib.sh`):
 
 | State | Rule |
 |---|---|
 | `● OK` | a state file changed within `SLOW_AFTER` seconds (default 15) |
-| `● SLOW?` | no change for `SLOW_AFTER`..`STALL_AFTER` seconds |
-| `● STALLED?` | no change for more than `STALL_AFTER` seconds (default 60) |
+| `● NO PROGRESS for <time>` yellow | no change for `SLOW_AFTER`..`STALL_AFTER` seconds |
+| `● NO PROGRESS for <time>` red | no change for more than `STALL_AFTER` seconds (default 60) |
 | `● NOT RUNNING` | the pid in `job.pid` is gone and the job never called finish |
 | `● FINISHED` | the job called finish (failures, if any, are shown next to it) |
 
 Freshness is the newest mtime of `progress`, `current.env`, `summary.env`, `items.tsv` and `output.log`. Jobs with
 long silent steps should raise the thresholds (`SB_SLOW_AFTER`, `SB_STALL_AFTER`) rather than fake progress.
+
+A board fed by **readings** (`CHECK_EVERY` > 0: someone, usually Claude, reads the app and pushes `pct`/`count`
+about every `CHECK_EVERY` seconds). Silence between readings is the schedule, not the job:
+
+| State | Rule |
+|---|---|
+| `● OK - last reading 3 min ago (next check ~14:12)` | readings arrive on schedule |
+| `● NO PROGRESS for <time> - same reading since 14:02` yellow / red | readings keep showing the same value for `SLOW_AFTER` / `STALL_AFTER` (sb.sh defaults 300 / 900) |
+| `● NOT WATCHED - …. Ask Claude for an update` grey | `WATCHING=0` (Claude said it stopped checking), or no reading for more than `CHECK_EVERY` × 1.25 + 90 s (timers can fire late) |
+| `● NOT RUNNING` | the watched app's pid (`SB_WATCH_PID`) is gone |
+
+While NOT WATCHED, the bar turns grey and shows the reading's time (`26%  at 14:02`), and the ETA becomes the
+app's own estimate as a clock time (`around 14:23 (app's estimate at 14:02)`) instead of a live countdown.
 
 ## Percent and ETA
 
@@ -124,10 +142,10 @@ rename). The viewer never executes these files; it only reads the keys listed he
 
 | File | Content |
 |---|---|
-| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER WEIGHT_EXPLICIT` (`STARTED` = epoch seconds, `FINISHED` = 0/1) |
+| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER WEIGHT_EXPLICIT CHECK_EVERY WATCHING` (`STARTED` = epoch seconds, `FINISHED` = 0/1, `CHECK_EVERY` = seconds between readings or 0, `WATCHING` = 0/1) |
 | `current.env` | `KEY=value` lines for the item in progress: `IDX NAME WEIGHT STAGE ITEM_START`; empty between items |
 | `current.env` (cont.) | also `ITEM_WEIGHT` (weight as given) and `MEASURABLE=0` for an item whose progress cannot be measured |
-| `progress` | `done=<weight done in the current item>`, and optional `pct=<0-100 as the tool reports it>`, `eta=<seconds or h:mm:ss left, as the tool reports it>`, `count=<free text, e.g. 54 MB written>`, `rate=<free text>`. Programs that write ffmpeg-style `out_time_us=` / `speed=` work as-is |
+| `progress` | `done=<weight done in the current item>`, and optional `pct=<0-100 as the tool reports it>`, `eta=<seconds or h:mm:ss left, as the tool reports it>`, `count=<free text, e.g. 54 MB written>`, `rate=<free text>`, `read=<epoch of the last reading>`, `since=<epoch since the reading has had this value>`. Programs that write ffmpeg-style `out_time_us=` / `speed=` work as-is |
 | `job.pid` | pid of the process whose exit means NOT RUNNING (the job, or with `SB_WATCH_PID` the app doing the work). Optional: without it, health comes from fresh updates alone |
 | `items.tsv` | optional table, tab-separated: `#COLUMNS<TAB>name<TAB>name…`, then one row per item: `<idx><TAB><state>[:<detail>]<TAB><cell><TAB><cell>…` with state `queued`, `run`, `done`, `warn`, `fail` or `skip` |
 | `output.log` | optional; the last line is shown as `Output` (written by `sb_track`) |
@@ -145,4 +163,7 @@ rename). The viewer never executes these files; it only reads the keys listed he
 5. Read the terminal pane back and check it renders before telling the user to look.
 6. Say once: what is running, expected duration, where to look, the exact stop command. Then report completion
    or failure without being asked.
-7. Health comes from fresh progress, never from "the process exists".
+7. Health comes from fresh progress, never from "the process exists", and never claims more than it knows: no
+   progress is reported as "no progress for <time>", nobody checking as "NOT WATCHED".
+8. Check-ins (only for progress you alone can read, on a job that outlasts your turn): ask first, offering at
+   least three intervals that fit the job's length plus "no check-ins".

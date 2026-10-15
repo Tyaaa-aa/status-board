@@ -77,7 +77,7 @@ sb_ok; sb_skip 3 "" 3; out=$(view "$S"); has "$out" " 75%" "skip counts one item
 S=$T/six; sb_init "$S" "Dead" 2; sb_start 1 a
 ( exit 0 ) & dead=$!; wait "$dead"; echo "$dead" > "$S/job.pid"
 has "$(view "$S")" "NOT RUNNING" "dead pid"
-echo $$ > "$S/job.pid"; touch -d '@1' "$S"/*; out=$(view "$S"); has "$out" "STALLED?" "old timestamps"
+echo $$ > "$S/job.pid"; touch -d "@1" "$S"/*; out=$(view "$S"); has "$out" "NO PROGRESS for" "old timestamps: says how long, not what it means"; hasnt "$out" "STALLED" "never claims a hang"
 
 # 7. narrow terminal: no line wider than the terminal
 S=$T/seven; sb_init "$S" "A very long job title that goes on and on and on and on and on and on and on" 2
@@ -182,6 +182,36 @@ SB_WATCH_PID=$dead "$SBX" "$T/cli2" init "Watched" 1; "$SBX" "$T/cli2" start 1 x
 out=$(view "$T/cli2"); has "$out" "NOT RUNNING" "SB_WATCH_PID: exit of the watched process shows"
 grep -q '^STOP=$' "$T/cli2/summary.env" && ok || bad "no default stop that would kill the watched process" "$(cat "$T/cli2/summary.env")"
 "$SBX" "$T/nope" ok 2>/dev/null && bad "sb.sh before init fails" || ok
+
+# 17. boards fed by readings (sb.sh): health follows the reading schedule, never guesses about the job
+SBX="$here/skills/status-board/scripts/sb.sh"
+setp() { sed -i "s/^$2=.*/$2=$3/" "$1/progress"; }          # backdate a progress key
+S=$T/rd; "$SBX" "$S" init "Readings" 1 "cancel in the app"; "$SBX" "$S" start 1 film.mp4 "?"; "$SBX" "$S" pct 40 600
+out=$(view "$S"); has "$out" "● OK - last reading" "on schedule: OK"; has "$out" "next check ~" "next check time"
+now=$(date +%s)
+"$SBX" "$S" pct 40 590; setp "$S" since $((now - 400)); out=$(view "$S")
+has "$out" "same reading since"; has "$out" "● NO PROGRESS for 6:4" "same reading for > 5 min: yellow, with the fact"
+setp "$S" since $((now - 1000)); out=$(FORCE_COLOR=1 COLUMNS=100 bash "$VIEW" --once "$S" </dev/null)
+grep -qF $'\e[31;1m● NO PROGRESS for 16:4' <<<"$out" && ok || bad "same reading for > 15 min: red" "$out"
+"$SBX" "$S" pct 55 300; out=$(view "$S"); has "$out" "● OK" "a changed reading is progress again"
+setp "$S" read $((now - 400)); touch -d "@$((now - 400))" "$S"/*; out=$(view "$S")
+has "$out" "● NOT WATCHED - no reading for 6:4" "overdue check: NOT WATCHED, not stalled"
+has "$out" "at $(date -d "@$((now - 400))" +%H:%M)" "stale reading shows its time"
+has "$out" "(app's estimate at" "stale ETA is the app's estimate, not a countdown"
+"$SBX" "$S" pct 60 240; "$SBX" "$S" unwatched; out=$(view "$S")
+has "$out" "● NOT WATCHED - Claude stopped checking; last reading" "explicit unwatched"
+has "$out" "Ask Claude for an update" "tells the user what to do"
+grep -q '^WATCHING=0$' "$S/summary.env" && ok || bad "unwatched saved" "$(cat "$S/summary.env")"
+for w in 40 50 64; do
+  out=$(view "$S" "$w"); long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
+  [ -z "$long" ] && ok || bad "NOT WATCHED layout fits a $w-column terminal" "$long"
+done
+"$SBX" "$S" watch 600; grep -q '^CHECK_EVERY=600$' "$S/summary.env" && grep -q '^WATCHING=1$' "$S/summary.env" && ok || bad "watch saved"
+has "$(view "$S")" "● OK" "watching again"
+"$SBX" "$S" watch soon 2>/dev/null && bad "watch rejects a non-number" || ok
+for f in "$T"/*/; do out=$(view "$f"); grep -qE 'STALLED|SLOW\?' <<<"$out" && bad "no STALLED / SLOW? anywhere ($f)" "$out" || ok; done
+S=$T/quiet; sb_init "$S" "Quiet" 2 "kill 1"; sb_start 1 a; sb_progress 0.1; touch -d "@$(( $(date +%s) - 20 ))" "$S"/*
+has "$(view "$S")" "● NO PROGRESS for 0:20" "script job quiet for a bit: plain fact"
 
 # 12. post-bash hook: one notice per job, only in the session that started it
 HOOK="$here/hooks/post-bash.sh"

@@ -38,6 +38,12 @@ US=$'\x1f'
 
 fmt()   { local s=${1%.*}; [[ $s =~ ^[0-9]+$ ]] || s=0
           if ((s >= 3600)); then printf '%d:%02d:%02d' $((s/3600)) $((s%3600/60)) $((s%60)); else printf '%d:%02d' $((s/60)) $((s%60)); fi; }
+# ago <seconds> -> "12s ago" / "4 min ago" / "1h 05m ago";  clock <epoch> -> "14:02"
+ago()   { local s=${1:-0}; ((s < 60)) && { echo "${s}s ago"; return; }; ((s < 3600)) && { echo "$((s / 60)) min ago"; return; }
+          printf '%dh %02dm ago\n' $((s / 3600)) $((s % 3600 / 60)); }
+every() { local s=${1:-0}; ((s < 60)) && { echo "${s}s"; return; }; ((s < 3600)) && { echo "$((s / 60)) min"; return; }
+          ((s % 3600)) && printf '%dh %02dm\n' $((s / 3600)) $((s % 3600 / 60)) || echo "$((s / 3600))h"; }
+clock() { date -d "@$1" +%H:%M 2>/dev/null || date -r "$1" +%H:%M 2>/dev/null || echo "?"; }
 isnum() { [[ $1 =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 # fit <text> <width> [l|r] -> FIT: padded, or cut with an ellipsis
@@ -64,7 +70,7 @@ secs()  { local t=${1//[!0-9:]/}; SECS=
 readkv() { local k v; [ -f "$1" ] || return 0
            while IFS='=' read -r k v || [ -n "$k" ]; do
              case "$k" in TITLE|TOTAL|DONE|FAILED|WARNED|SKIPPED|WEIGHT_TOTAL|WEIGHT_DONE|STARTED|FINISHED|LAST|STOP|\
-SLOW_AFTER|STALL_AFTER|IDX|NAME|WEIGHT|STAGE|ITEM_START|MEASURABLE) printf -v "$k" '%s' "${v%$'\r'}";; esac
+SLOW_AFTER|STALL_AFTER|CHECK_EVERY|WATCHING|IDX|NAME|WEIGHT|STAGE|ITEM_START|MEASURABLE) printf -v "$k" '%s' "${v%$'\r'}";; esac
            done < "$1"; }
 
 if ((howto)); then
@@ -87,9 +93,9 @@ fi
 
 while :; do
   TITLE=; TOTAL=0; DONE=0; FAILED=0; WARNED=0; SKIPPED=0; WEIGHT_TOTAL=0; WEIGHT_DONE=0; STARTED=0; FINISHED=0
-  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0; MEASURABLE=1
+  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; CHECK_EVERY=0; WATCHING=1; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0; MEASURABLE=1
   readkv "$STATE/summary.env"; readkv "$STATE/current.env"
-  for v in TOTAL DONE FAILED WARNED SKIPPED STARTED FINISHED ITEM_START SLOW_AFTER STALL_AFTER; do
+  for v in TOTAL DONE FAILED WARNED SKIPPED STARTED FINISHED ITEM_START SLOW_AFTER STALL_AFTER CHECK_EVERY WATCHING; do
     [[ ${!v} =~ ^[0-9]+$ ]] || printf -v "$v" 0; done
   for v in WEIGHT_TOTAL WEIGHT_DONE WEIGHT; do isnum "${!v}" || printf -v "$v" 0; done
   ((SLOW_AFTER > 0)) || SLOW_AFTER=15; ((STALL_AFTER > SLOW_AFTER)) || STALL_AFTER=$((SLOW_AFTER * 4))
@@ -107,7 +113,7 @@ while :; do
     L+=("${B}status-board${N}" "$RULE" "${D}Waiting for job state in${N} $STATE ${D}(no summary.env yet)${N}")
   else
     # ---- progress, freshness, liveness ----
-    done_w=0; rate=; out_line=; have_done=0; pct_r=; eta_r=-1; count=
+    done_w=0; rate=; out_line=; have_done=0; pct_r=; eta_r=-1; count=; read_r=; since_r=
     if [ -f "$STATE/progress" ]; then
       blk=$(tail -n 20 "$STATE/progress")
       pa=$((now - $(mtime "$STATE/progress"))); ((pa < 0)) && pa=0
@@ -116,6 +122,7 @@ while :; do
       e=$(sed -n 's/^eta=//p' <<<"$blk" | tail -n 1)
       [ -n "$e" ] && secs "$e" && { eta_r=$((SECS - pa)); ((eta_r < 0)) && eta_r=0; }   # counts down between reports
       count=$(sed -n 's/^count=//p' <<<"$blk" | tail -n 1)
+      read_r=$(sed -n 's/^read=//p' <<<"$blk" | tail -n 1); since_r=$(sed -n 's/^since=//p' <<<"$blk" | tail -n 1)
       dn=$(sed -n 's/^done=//p' <<<"$blk" | tail -n 1)
       if [ -z "$dn" ]; then   # tools that write ffmpeg-style -progress files
         us=$(sed -n 's/^out_time_us=//p' <<<"$blk" | tail -n 1); isnum "$us" && dn=$(awk -v u="$us" 'BEGIN{printf "%.3f", u/1e6}')
@@ -157,18 +164,42 @@ while :; do
     # why there is no number, in plain words (never "calculating" when nothing is being calculated)
     case "$known" in 0) why="no % available";; 1) why="no % reported yet";; *) why=; esac
 
-    # health: full sentence if it fits, else the short form
+    # health: full sentence if it fits, else the short form. Every state is something the board actually knows.
+    nw=0
     if   [ "$FINISHED" = 1 ]; then
       if ((FAILED > 0)); then health="${GB}● FINISHED${N} - ${R}${FAILED} failed${N}"; hs=$health
       else health="${GB}● FINISHED${N}"; hs=$health; fi; bc=$GB
     elif ((alive == 0)); then
       health="${R}● NOT RUNNING${N} - the job process has exited without finishing"; hs="${R}● NOT RUNNING${N}"; bc=$R
+    elif ((CHECK_EVERY > 0)); then
+      # fed by readings (someone checks every CHECK_EVERY s): silence between readings is the schedule, not the job
+      rd=$newest; [[ $read_r =~ ^[0-9]+$ ]] && rd=$read_r
+      rage=$((now - rd)); ((rage < 0)) && rage=0
+      stuck=0; ((inflight)) && [[ $since_r =~ ^[0-9]+$ ]] && ((rd > since_r)) && stuck=$((rd - since_r))
+      if ((WATCHING == 0)); then
+        nw=1; health="${D}● NOT WATCHED - Claude stopped checking; last reading $(ago "$rage"). Ask Claude for an update${N}"
+      elif ((rage > CHECK_EVERY + CHECK_EVERY / 4 + 90)); then   # a check is overdue (allows for late timers)
+        nw=1; health="${D}● NOT WATCHED - no reading for $(fmt "$rage") (due every $(every "$CHECK_EVERY")). Ask Claude for an update${N}"
+      fi
+      if ((nw)); then hs="${D}● NOT WATCHED $(ago "$rage")${N}"; bc=$D
+      elif ((stuck >= SLOW_AFTER)); then
+        c=$Y; ((stuck >= STALL_AFTER)) && c=$R
+        health="${c}● NO PROGRESS for $(fmt "$stuck")${N} - same reading since $(clock "$since_r")"; hs="${c}● NO PROGRESS $(fmt "$stuck")${N}"; bc=$c
+      else
+        nx=$((rd + CHECK_EVERY)); if ((nx > now)); then nt="next check ~$(clock "$nx")"; else nt="next check due now"; fi
+        health="${G}● OK${N} - last reading $(ago "$rage") ${D}($nt)${N}"; hs="${G}● OK${N} ${D}$(ago "$rage")${N}"; bc=$G
+      fi
     elif ((age <= SLOW_AFTER)); then
       health="${G}● OK${N} - progressing ${D}(last update ${age}s ago)${N}"; hs="${G}● OK${N} ${D}${age}s ago${N}"; bc=$G
-    elif ((age <= STALL_AFTER)); then
-      health="${Y}● SLOW?${N} - no progress for ${age}s"; hs="${Y}● SLOW?${N} ${age}s"; bc=$Y
     else
-      a=$(fmt "$age"); health="${R}● STALLED?${N} - no progress for $a, may be hung"; hs="${R}● STALLED?${N} $a"; bc=$R
+      # no progress reported: say how long, not what it means (a long silent step is not a hang)
+      c=$Y; ((age > STALL_AFTER)) && c=$R; a=$(fmt "$age")
+      health="${c}● NO PROGRESS for $a${N}"; hs=$health; bc=$c
+    fi
+    if ((nw && inflight)); then   # a stale reading is shown as a reading, with its time; never as live
+      if ((eta_r >= 0)); then cur_eta=0; eta_nw="around $(clock $((now + eta_r))) (app's estimate at $(clock "$rd"))"; eta_nws="~$(clock $((now + eta_r)))"
+      else cur_eta=0; eta_nw="unknown - not watched"; eta_nws=unknown; fi
+      ((single)) && all_eta=0
     fi
     vis "$health"; ((9 + VIS_LEN > W)) && health=$hs
 
@@ -194,12 +225,14 @@ while :; do
       else bar "$all_pct" "$BW" "$bc"; ln="${D}Progress${N} [$BAR] $B$(printf '%3d' "$all_pct")%$N"; used=$((9 + BW + 2 + 5)); fi
       extra=(); plain=()
       if ((inflight)); then
+        ((nw)) && { t="at $(clock "$rd")"; extra+=("$D$t$N"); plain+=("$t"); }
         [ -n "$count" ] && { cut_to "$count" 24; extra+=("$B$CUT$N"); plain+=("$CUT"); }
         [ -n "$rate" ] && { cut_to "$rate" 16; extra+=("${D}rate${N} $B$CUT$N"); plain+=("rate $CUT"); }
       fi
       extras; L+=("$ln")
       if [ "$FINISHED" = 1 ] || ((!inflight && DONE + FAILED > 0)); then eta_line done done
       elif ((!inflight)); then eta_line "not started" "not started"
+      elif ((nw)); then eta_line "$eta_nw" "$eta_nws"
       elif ((cur_eta > 0 || eta_r == 0)); then e="~$(fmt "$cur_eta")"; eta_line "$e" "$e"
       elif ((known < 2)); then eta_line "unknown - $why" unknown
       else eta_line "not enough progress yet" "too early"; fi

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0
+The board only says what it knows.
+- **No more "STALLED?" or "SLOW?".** Health says the fact: `● NO PROGRESS for 5:00`, yellow at first, red once
+  it has gone on longer than this job expects. A long silent step is not a hang, so the board no longer implies
+  one.
+- **Boards fed by readings** (Claude reading an app and pushing numbers with `sb.sh`) follow the reading
+  schedule instead of file timestamps: `● OK - last reading 3 min ago (next check ~14:12)`. When readings stop,
+  or Claude says it stopped (`sb.sh <state> unwatched`), the board turns grey: `● NOT WATCHED - … Ask Claude
+  for an update`, with the last reading's time and the app's ETA as a clock time. It never calls the job stuck
+  just because nobody is looking. NO PROGRESS appears there only when readings keep showing the same value.
+- **Check-ins.** For progress only Claude can read, on a job that outlasts Claude's reply, the skill has Claude
+  ask whether to keep checking, with at least three intervals that fit the job (minutes for an export, hours for
+  a long batch) plus "no check-ins", then schedule them in the session and stop them when the job ends.
+- New: `sb_watch <seconds>` / `sb.sh <state> watch <seconds>`, `sb_unwatched` / `sb.sh <state> unwatched`,
+  `SB_CHECK_EVERY` on init. Progress files gain `read=` and `since=`; summary gains `CHECK_EVERY`, `WATCHING`.
+
 ## 1.5.0
 From a real session where one video export got a board that sat at 0% with "ETA calculating" for its whole run,
 while the app itself showed 26% and 21 minutes left.
