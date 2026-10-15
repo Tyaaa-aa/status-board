@@ -38,11 +38,11 @@ out=$(view "$S")
 has "$out" "FINISHED" "finished"; has "$out" "100%" "100% when finished"; hasnt "$out" "NOW" "no NOW when finished"
 has "$out" "4/5 done" "done count (ok + warn + skip + last ok)"
 
-# 2. constant columns hide, placeholder-only columns stay
+# 2. a tag column with one group hides; ordinary repeated values and placeholder-only columns stay
 S=$T/two; sb_init "$S" "Hide test" 3
-sb_cols "Item" "Kind" "Result"; sb_item 1 a same -; sb_item 2 b same -; sb_item 3 c same -
+sb_cols "Item" "@Kind" "Verdict" "Result"; sb_item 1 a same no -; sb_item 2 b same no -; sb_item 3 c same no -
 out=$(view "$S")
-hasnt "$out" "Kind" "column with one repeated value is hidden"; has "$out" "Result" "placeholder column is kept"
+hasnt "$out" "Kind" "tag column with one group is hidden"; has "$out" "Verdict" "ordinary column with one repeated value is kept"; has "$out" "Result" "placeholder column is kept"
 
 # 3. empty cells keep their column
 S=$T/three; sb_init "$S" "Empty cells" 2

@@ -37,7 +37,8 @@ no `NOW` or `Stop` once finished, no table without `items.tsv`.
 - `#` is always first and `Status` always last; Status is generated from the row state.
 - A column name starting with `@` is a tag column: each distinct value gets its own colour.
 - Widths come from the data. Columns whose values all look numeric (`42`, `3.5 MB`, `0:42`, `98%`) align right.
-- A column whose value is the same on every row is hidden (it carries no information). Columns that are still
+- A tag (`@`) column whose value is the same on every row is hidden: one group says nothing. Ordinary columns
+  always show, because a value repeated on every row (e.g. `no` in a result column) is still a result. Columns that are still
   all `-` stay visible, so the layout does not jump once values arrive.
 - When the terminal is narrow, the widest columns are shortened with `…` so no line wraps.
 

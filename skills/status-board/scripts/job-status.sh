@@ -216,7 +216,7 @@ while :; do
         done
         ((w > 40)) && w=40; ((w < 1)) && w=1
         CW[c]=$w; RA[c]=l; ((numeric && real)) && RA[c]=r
-        VIS[c]=1; ((c > 0 && nrows > 1 && same && real)) && VIS[c]=0    # same real value everywhere: no information
+        VIS[c]=1; ((TG[c] && nrows > 1 && same && real)) && VIS[c]=0    # a tag column with one group says nothing
       done
       # shrink the widest visible columns until a row fits the terminal
       while :; do

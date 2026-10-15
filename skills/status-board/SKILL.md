@@ -22,8 +22,8 @@ table columns are chosen for each job. Paths below are relative to this skill's 
    sb_finish                                      # last line of the job
    ```
    - **Choose columns from the job**, never from habit or another job: what would the user want to see per
-     item? Keep it to 2-5 columns. Prefix one grouping column with `@` to colour it. Columns with one repeated
-     value hide themselves.
+     item? Keep it to 2-5 columns. Prefix one grouping column with `@` to colour it; it hides itself while every row
+     is in the same group.
    - Use a fresh state dir per job (e.g. `$(mktemp -d)/state`) and start the job detached
      (`setsid nohup bash job.sh >/dev/null 2>&1 &`) so it outlives the shell.
    - Jobs with long silent steps: set `SB_SLOW_AFTER` / `SB_STALL_AFTER` (seconds) before `sb_init`.

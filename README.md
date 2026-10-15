@@ -53,7 +53,7 @@ Stop     kill 63767
 showing 1-5 of 5  ✔ 2 done  ▶ 1 running  · 1 queued  – 1 skipped  ✖ 0 failed
 ```
 
-(The downloads job also declared a `Mirror` column; every row had the same value, so the board hid it.)
+(The downloads job also declared a `@Mirror` tag column; every file came from the same mirror, so the board hid it.)
 
 ## Install
 

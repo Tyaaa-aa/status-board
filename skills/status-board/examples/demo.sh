@@ -21,7 +21,7 @@ case "$kind" in
     files=(dataset-a.tar dataset-b.tar weights.bin notes.pdf images.zip); mb=(400 250 900 3 120)
     total=0; for m in "${mb[@]}"; do total=$((total + m)); done
     sb_init "$state" "Demo: downloads" ${#files[@]} "$total" "kill $$"
-    sb_cols "File" "Size" "Mirror" "Took"
+    sb_cols "File" "Size" "@Mirror" "Took"
     for i in "${!files[@]}"; do sb_item $((i+1)) "${files[i]}" "${mb[i]} MB" "eu-1" -; done
     sb_skip 4 "already have it" 3
     for i in 0 1 2 4; do

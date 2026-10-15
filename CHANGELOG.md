@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+- Only a tag (`@`) column with a single group hides itself. Ordinary columns always show: a value repeated on
+  every row (such as `no` in a result column) is still a result.
+
 ## 1.2.0
 - SessionStart hook: a two-sentence note at the start of each session so Claude shows long-running jobs on the
   board without being asked (re-added after `/clear` and compaction). Disable the plugin to turn it off.
