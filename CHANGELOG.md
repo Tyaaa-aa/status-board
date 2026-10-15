@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3
+- Clearer rule: the watch/stop message must be written to the user as normal text right after the job starts,
+  before waiting on it (a fresh-session test showed it only being echoed inside a command).
+
 ## 1.2.2
 From a fresh-session test where Claude used the board unasked but left out a few things:
 - The skill now requires telling the user how to watch the board and how to stop the job, in the reply that

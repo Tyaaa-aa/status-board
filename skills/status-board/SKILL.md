@@ -35,7 +35,8 @@ table columns are chosen for each job. Paths below are relative to this skill's 
      Never run the live viewer through your own shell tool: it loops until the job ends and its output is hidden.
    - Either way, `bash "<skill-dir>/scripts/job-status.sh" --once "$STATE"` prints one plain frame. Use it to check
      the job yourself, and paste a frame into chat at meaningful moments if the user cannot see a live board.
-4. **Required, in the same reply that starts the job** (also in non-interactive runs), tell the user:
+4. **Required: right after starting the job and before you wait on it or do anything else**, write a short message
+   to the user as normal reply text (not only inside a command or its output) with:
    - what is running and roughly how long it will take;
    - where to watch it: the terminal tab you opened, or the exact viewer command to paste into a second terminal;
    - the exact stop command.
