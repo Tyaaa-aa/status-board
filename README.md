@@ -76,9 +76,11 @@ Progress [███████░░░░░░░░░░░░░░░░�
 Health   ● OK - last reading 12s ago (next check ~14:03)
 ```
 
-If only Claude can read that progress (say, through the app's MCP tools), Claude asks whether to keep checking
-on a schedule that fits the job, with a few interval choices. When nobody is checking any more, the board says
-so in grey and keeps the last reading with its time, instead of calling the job stuck:
+Claude feeds that from a small background script that reads the app (its CLI, API or control port), so the
+board stays live without Claude coming back and without anything in the chat. If only Claude can read the
+progress, it stops checking when it finishes replying (check-ins on a timer are offered, off by default, since
+each one uses your usage). The board then says so in grey and keeps the last reading with its time, instead of
+calling the job stuck:
 
 ```
 Progress [███████░░░░░░░░░░░░░░░░░░░░░░░]  26%   at 14:02   54 MB written

@@ -42,16 +42,23 @@ table columns are chosen for each job. Paths below are relative to this skill's 
      (`setsid nohup bash job.sh >/dev/null 2>&1 &`) so it outlives the shell.
    - Jobs with long silent steps: set `SB_SLOW_AFTER` / `SB_STALL_AFTER` (seconds) before `sb_init`.
    - Programs other than bash can write the files directly (see `STATUS-BOARD.md`).
-   - **Progress only you can see** (an app you read through MCP tools, UI text or screenshots): drive the board
-     with one command per update, `bash "<skill-dir>/scripts/sb.sh" "$STATE" <command> [args]` (`init`, `start`,
-     `stage`, `pct`, `count`, `watch`, `unwatched`, `ok`, `fail`, `finish`; same arguments as the `sb_` helpers).
-     On `init`, pass `SB_CHECK_EVERY=<seconds between your readings>` and `SB_WATCH_PID=<app pid>` (the board then
-     says NOT RUNNING if the app dies). Push every reading (`sb.sh "$STATE" pct 26 21:00`): **whenever you learn
-     a number, put it on the board**; the board must never show less than you know.
-     The board's health then follows your reading schedule: OK while readings arrive, NO PROGRESS (yellow, then
-     red) only when readings stay the same, and grey **NOT WATCHED** when readings stop. It never calls the job
-     stuck just because you stopped looking. Keep reading while you wait in this turn. If the job will outlast your
-     turn, see **Check-ins** below.
+   - **Progress that lives inside an app** (an export, a render, a sync): **first look for a way a script can
+     read it**: the app's CLI, HTTP API, control port or socket, a status/progress file, a log line with a %. If
+     one exists, run a small background script that polls it every few seconds and feeds the board with
+     `bash "<skill-dir>/scripts/sb.sh" "$STATE" <command> [args]` (`init`, `start`, `stage`, `pct`, `count`,
+     `ok`, `fail`, `finish`; same arguments as the `sb_` helpers) and finishes it when the work ends. That keeps
+     the board live at no cost and with nothing in the chat; you only come back when the script exits.
+   - On `init`, pass `SB_CHECK_EVERY=<seconds between readings>`, `SB_WATCH_PID=<app pid>` (NOT RUNNING if the app
+     dies) and, when the job was already running, `SB_JOB_STARTED=<epoch it started>` or `SB_JOB_STARTED=unknown`
+     (the board then says "watched for" and never guesses an ETA from progress it only partly saw).
+   - **Whenever you learn a number, put it on the board** (`sb.sh "$STATE" pct 26 21:00`); it must never show
+     less than you know. Health follows the reading schedule: OK while readings arrive, NO PROGRESS (yellow, then
+     red) only when readings stay the same, grey **NOT WATCHED** when readings stop. It never calls a job stuck
+     because nobody is looking.
+   - **Only you can read it** (MCP tools or screenshots, no script can): push readings while you are working in
+     this turn. When you finish replying, run `sb.sh "$STATE" unwatched` and tell the user you have stopped
+     checking, that the board keeps the last reading with its time, and that they can ask you for an update any
+     time. See **Check-ins** for the rare case where they want more.
 4. Show the board. The viewer command is `bash "<skill-dir>/scripts/job-status.sh" "$STATE"`.
    - **If you have a tool that runs a command in a terminal tab or pane the user can see** (e.g. a terminal panel
      in a desktop app or IDE), run the viewer there and read the pane back to confirm it renders.
@@ -72,22 +79,22 @@ table columns are chosen for each job. Paths below are relative to this skill's 
    your message is still required, since some clients do not display plugin notices.) When the job ends, report the outcome yourself (key lines of the final `--once` frame:
    done, failed, which items). The user should never have to ask for status.
 
-## Check-ins (only when the progress is readable by you alone and the job outlasts your turn)
+## Check-ins (off by default; rarely worth it)
 
-Rare: most jobs are fed by a script and need nothing from you after they start. When only you can read the
-progress and the job will still be running when you finish replying:
+A check-in is you coming back on a timer to read the app. Each one is a full model turn: it uses the user's
+usage and shows up in the chat as tool calls and a message, which is what a board is meant to avoid. So:
 
-1. Ask the user whether you should keep checking, with the AskUserQuestion tool (never make them type an
-   interval). Give **at least three intervals that fit this job**, about 1/8, 1/4 and 1/2 of its expected
-   remaining time, rounded to round numbers and never under 2 minutes (a 40-minute export: 5 / 10 / 20 min; a
-   6-hour batch: 30 min / 1 h / 2 h), plus "No check-ins, I'll ask". Say each check-in uses some of their usage.
-2. **Yes:** schedule it with CronCreate (recurring, an off-minute, a prompt that names the state dir, how to read
-   the progress, and to stop on completion), and run `sb.sh "$STATE" watch <interval-seconds>`. On each fire: read
-   the app, push the reading, reply with one line ("48% → 61%, about 9 min left"). When the job ends: `ok`/`fail`,
-   `finish`, CronDelete, report the result. Check-ins live only in this session; if it closes, the board turns
-   NOT WATCHED on its own.
-3. **No:** run `sb.sh "$STATE" unwatched` and tell the user: you have stopped checking, the board shows the last
-   reading with its time, and they can ask you for an update any time (then read, push, and report).
+- Never schedule check-ins without asking, and never more often than every 10 minutes.
+- Offer them only when the progress is readable by you alone (no script can, see above) **and** the job will
+  run well past your reply. Ask with the AskUserQuestion tool, with **"No check-ins (Recommended)" first**,
+  then at least three choices that fit the job: once, near the expected end; about every half of the remaining
+  time; about every quarter of it (never under 10 minutes). Say plainly that each check-in uses their usage and
+  appears in the chat.
+- **Yes:** schedule with CronCreate (an off-minute; the prompt names the state dir, how to read the progress,
+  and to stop when the job ends), run `sb.sh "$STATE" watch <interval-seconds>`. On each fire: read, push the
+  reading, reply with one short line. When the job ends: `ok`/`fail`, `finish`, CronDelete, report the result.
+  Check-ins live only in this session; if it closes, the board turns NOT WATCHED on its own.
+- **No (the default):** `sb.sh "$STATE" unwatched`, and tell the user they can ask you for an update any time.
 
 `examples/demo.sh tests` and `examples/demo.sh downloads` run two fake jobs with different columns.
 Requires bash 4.2+, awk, sed, tput.

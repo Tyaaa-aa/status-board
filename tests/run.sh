@@ -148,7 +148,7 @@ has "$out" "unknown until the first item finishes" "batch ETA before any item is
 has "$out" "▶ rendering" "row stage"; hasnt "$out" "▶ rendering 0%" "no % on an unmeasurable row"
 sb_ok; sb_start 2 b; out=$(view "$S")
 has "$out" "no % reported yet" "item that has reported nothing yet"; hasnt "$out" "calculating" "never 'calculating' (batch)"
-sb_progress 0; has "$(view "$S")" "not enough progress yet" "measurable but too early"
+S=$T/early; sb_init "$S" "Early" 1 "kill 1"; sb_start 1 a; sb_progress 0; has "$(view "$S")" "not enough progress yet" "measurable but too early"
 for w in 40 50 64; do
   out=$(view "$T/unknown" "$w"); long=$(awk -v m=$((w - 1)) '{ if (length($0) > m) print }' <<<"$out")
   [ -z "$long" ] && ok || bad "unknown layout fits a $w-column terminal" "$long"
@@ -212,6 +212,17 @@ has "$(view "$S")" "● OK" "watching again"
 for f in "$T"/*/; do out=$(view "$f"); grep -qE 'STALLED|SLOW\?' <<<"$out" && bad "no STALLED / SLOW? anywhere ($f)" "$out" || ok; done
 S=$T/quiet; sb_init "$S" "Quiet" 2 "kill 1"; sb_start 1 a; sb_progress 0.1; touch -d "@$(( $(date +%s) - 20 ))" "$S"/*
 has "$(view "$S")" "● NO PROGRESS for 0:20" "script job quiet for a bit: plain fact"
+
+# 18. attached to a job already running: real start time, or plainly "watched for" with no guessed ETA
+S=$T/att; t0=$(( $(date +%s) - 600 ))
+SB_JOB_STARTED=$t0 "$SBX" "$S" init "Attached" 1 "x"; "$SBX" "$S" start 1 a; "$SBX" "$S" pct 50
+out=$(view "$S"); has "$out" "elapsed 10:0" "elapsed counts from the job's real start"; grep -qE 'ETA ~(10:0|9:5)' <<<"$out" && ok || bad "ETA extrapolated from the real start" "$out"
+S=$T/att2; SB_JOB_STARTED=unknown "$SBX" "$S" init "Attached, start unknown" 1 "x"; "$SBX" "$S" start 1 a; "$SBX" "$S" pct 50
+out=$(view "$S"); has "$out" "watched for" "unknown start: watched for"; hasnt "$out" "elapsed" "no 'elapsed' when the start is unknown"
+has "$out" "ETA unknown - started before the board" "no ETA guessed from a partial view"
+"$SBX" "$S" pct 55 "4:00"; grep -qE 'ETA ~(4:00|3:59)' <<<"$(view "$S")" && ok || bad "a reported ETA is still shown" "$(view "$S")"
+SB_JOB_STARTED=soon "$SBX" "$T/att3" init "Bad" 1 2>/dev/null; grep -q '^ATTACHED=0$' "$T/att3/summary.env" && ok || bad "bad SB_JOB_STARTED ignored"
+has "$(bash "$VIEW" --howto "$T/att")" "Running: Attached (1 item)" "howto: 1 item, not 1 items"
 
 # 12. post-bash hook: one notice per job, only in the session that started it
 HOOK="$here/hooks/post-bash.sh"

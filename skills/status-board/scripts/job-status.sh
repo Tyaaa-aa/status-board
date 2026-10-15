@@ -70,7 +70,7 @@ secs()  { local t=${1//[!0-9:]/}; SECS=
 readkv() { local k v; [ -f "$1" ] || return 0
            while IFS='=' read -r k v || [ -n "$k" ]; do
              case "$k" in TITLE|TOTAL|DONE|FAILED|WARNED|SKIPPED|WEIGHT_TOTAL|WEIGHT_DONE|STARTED|FINISHED|LAST|STOP|\
-SLOW_AFTER|STALL_AFTER|CHECK_EVERY|WATCHING|IDX|NAME|WEIGHT|STAGE|ITEM_START|MEASURABLE) printf -v "$k" '%s' "${v%$'\r'}";; esac
+SLOW_AFTER|STALL_AFTER|CHECK_EVERY|WATCHING|ATTACHED|IDX|NAME|WEIGHT|STAGE|ITEM_START|MEASURABLE) printf -v "$k" '%s' "${v%$'\r'}";; esac
            done < "$1"; }
 
 if ((howto)); then
@@ -78,7 +78,8 @@ if ((howto)); then
   self=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
   st=$(cd "$STATE" 2>/dev/null && pwd) || st=$STATE
   q() { printf '%q' "$1"; }
-  echo "Running: ${TITLE:-job} (${TOTAL} items)"
+  ((TOTAL == 1)) && n="1 item" || n="$TOTAL items"
+  echo "Running: ${TITLE:-job} ($n)"
   echo "Watch:   bash $(q "$self") $(q "$st")"
   pid=$(head -n 1 "$STATE/job.pid" 2>/dev/null)
   echo "Stop:    ${STOP:-${pid:+kill $pid}}"
@@ -93,9 +94,9 @@ fi
 
 while :; do
   TITLE=; TOTAL=0; DONE=0; FAILED=0; WARNED=0; SKIPPED=0; WEIGHT_TOTAL=0; WEIGHT_DONE=0; STARTED=0; FINISHED=0
-  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; CHECK_EVERY=0; WATCHING=1; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0; MEASURABLE=1
+  LAST=; STOP=; SLOW_AFTER=15; STALL_AFTER=60; CHECK_EVERY=0; WATCHING=1; ATTACHED=0; IDX=; NAME=; WEIGHT=0; STAGE=; ITEM_START=0; MEASURABLE=1
   readkv "$STATE/summary.env"; readkv "$STATE/current.env"
-  for v in TOTAL DONE FAILED WARNED SKIPPED STARTED FINISHED ITEM_START SLOW_AFTER STALL_AFTER CHECK_EVERY WATCHING; do
+  for v in TOTAL DONE FAILED WARNED SKIPPED STARTED FINISHED ITEM_START SLOW_AFTER STALL_AFTER CHECK_EVERY WATCHING ATTACHED; do
     [[ ${!v} =~ ^[0-9]+$ ]] || printf -v "$v" 0; done
   for v in WEIGHT_TOTAL WEIGHT_DONE WEIGHT; do isnum "${!v}" || printf -v "$v" 0; done
   ((SLOW_AFTER > 0)) || SLOW_AFTER=15; ((STALL_AFTER > SLOW_AFTER)) || STALL_AFTER=$((SLOW_AFTER * 4))
@@ -159,6 +160,8 @@ while :; do
         ie = (ip >= 1 && ip < 100) ? iel*(100-ip)/ip : 0
         printf "%d %d %d %d\n", ap, ip, ae, ie }')
     [ "$FINISHED" = 1 ] && all_pct=100
+    # started before the board, start unknown: elapsed time and progress do not match, so never extrapolate
+    ((ATTACHED == 2)) && { all_eta=0; cur_eta=0; }
     ((inflight && eta_r >= 0)) && cur_eta=$eta_r            # the tool's own ETA beats extrapolation
     ((single && inflight)) && { all_pct=$cur_pct; all_eta=$cur_eta; }
     # why there is no number, in plain words (never "calculating" when nothing is being calculated)
@@ -207,8 +210,9 @@ while :; do
     cut_to "${TITLE:-job}" "$W"; L+=("$B$CUT$N" "$RULE")
     # optional parts after a progress bar, most useful first; a part is dropped if it would not fit on the line
     # eta_line <text> <short text>: the elapsed/ETA line, with the short wording when the long one does not fit
-    eta_line() { local t=$1 el_t; el_t=$(fmt "$el"); ((9 + 8 + ${#el_t} + 7 + ${#t} > W)) && t=$2
-                 L+=("         ${D}elapsed${N} $el_t   ${D}ETA${N} $B$t$N"); }
+    el_l=elapsed; ((ATTACHED == 2)) && el_l="watched for"   # the board only saw part of the job
+    eta_line() { local t=$1 el_t; el_t=$(fmt "$el"); ((9 + ${#el_l} + 1 + ${#el_t} + 7 + ${#t} > W)) && t=$2
+                 L+=("         ${D}$el_l${N} $el_t   ${D}ETA${N} $B$t$N"); }
     extras() { local k; for k in "${!extra[@]}"; do
                  ((used + 3 + ${#plain[k]} > W)) && continue
                  ln+="   ${extra[k]}"; used=$((used + 3 + ${#plain[k]})); done; }
@@ -235,6 +239,7 @@ while :; do
       elif ((nw)); then eta_line "$eta_nw" "$eta_nws"
       elif ((cur_eta > 0 || eta_r == 0)); then e="~$(fmt "$cur_eta")"; eta_line "$e" "$e"
       elif ((known < 2)); then eta_line "unknown - $why" unknown
+      elif ((ATTACHED == 2)); then eta_line "unknown - started before the board" unknown
       else eta_line "not enough progress yet" "too early"; fi
       # Details: the item's table cells, minus placeholders and the item name already shown above
       if [ -f "$STATE/items.tsv" ]; then
@@ -267,6 +272,7 @@ while :; do
     printf -v ln '%sOverall%s  [%s] %s%3d%%%s   %s%s%s%s%s' "$D" "$N" "$BAR" "$B" "$all_pct" "$N" "$G" "$dt" "$N" "$fails" "$warns"
     L+=("$ln")
     if [ "$FINISHED" = 1 ]; then eta_line done done; elif ((all_eta > 0)); then e="~$(fmt "$all_eta")"; eta_line "$e" "$e"
+    elif ((ATTACHED == 2)); then eta_line "unknown - started before the board" unknown
     elif ((DONE + FAILED + SKIPPED == 0 && known < 2)); then eta_line "unknown until the first item finishes" "unknown yet"
     else eta_line "not enough progress yet" "too early"; fi
     if [ "$FINISHED" != 1 ]; then

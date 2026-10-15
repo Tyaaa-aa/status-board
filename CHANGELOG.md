@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.7.0
+From the first real check-in test: per-minute check-ins worked, but each was a full model turn that used the
+user's usage and filled the chat, while a plain script could read the same progress from the app for free.
+- **Script first.** For progress inside an app, the skill now has Claude look for a way a script can read it
+  (CLI, API, control port, status file) and feed the board from a background script: live, free, quiet.
+- **Check-ins off by default.** Offered only when no script can read the progress and the job runs well past
+  Claude's reply; asked first, "No check-ins" recommended, intervals that fit the job and never under 10 minutes,
+  with the cost stated. Otherwise Claude marks the board NOT WATCHED and says to ask for an update.
+- **Real elapsed time for jobs already running.** `SB_JOB_STARTED=<epoch>` makes elapsed and ETAs count from the
+  job's real start; `SB_JOB_STARTED=unknown` shows "watched for" and no ETA guessed from a partial view (a
+  reported ETA is still shown).
+- Fix: "(1 items)" in the job-started notice now reads "(1 item)".
+- Test fix: the "not enough progress yet" check no longer depends on timing.
+
 ## 1.6.0
 The board only says what it knows.
 - **No more "STALLED?" or "SLOW?".** Health says the fact: `● NO PROGRESS for 5:00`, yellow at first, red once

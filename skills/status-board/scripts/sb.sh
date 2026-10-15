@@ -18,7 +18,8 @@
 # NOT WATCHED (grey) once they stop or after `unwatched`, NO PROGRESS (yellow, then red) only when readings show
 # the same value for SB_SLOW_AFTER / SB_STALL_AFTER seconds (defaults 300 / 900 here).
 # On init: SB_CHECK_EVERY=<seconds between readings> (default 60), SB_WATCH_PID=<pid of the app doing the work>
-# (the board says NOT RUNNING when it exits; without it there is no process to watch).
+# (the board says NOT RUNNING when it exits; without it there is no process to watch), SB_JOB_STARTED=<epoch> or
+# unknown when the job was already running before the board (see sb-lib.sh).
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sb-lib.sh" || exit 1
 usage() { sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 [ $# -ge 2 ] || usage

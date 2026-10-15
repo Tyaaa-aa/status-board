@@ -29,7 +29,9 @@
 #
 # Optional, set before sb_init: SB_SLOW_AFTER=15 SB_STALL_AFTER=60 (seconds without progress before the board
 # says NO PROGRESS in yellow / red). Raise them for jobs with long silent steps. SB_CHECK_EVERY=<seconds>: same
-# as sb_watch, from the start.
+# as sb_watch, from the start. SB_JOB_STARTED=<epoch>: the board is attached to a job that was already running
+# and started then (elapsed and ETAs count from it); SB_JOB_STARTED=unknown: already running, start unknown (the
+# board then says "watched for" and never extrapolates an ETA from a progress it did not see from the start).
 # Weights are any consistent unit (items, bytes, seconds of media, test cases...); progress % = weight done / total.
 
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 2 ]; }; then
@@ -56,7 +58,12 @@ sb_init() {
   SB_WEXPLICIT=1; [ -z "$SB_WTOTAL" ] && { SB_WTOTAL=$SB_TOTAL; SB_WEXPLICIT=0; }
   [ -z "$stop" ] && [ -z "${SB_WATCH_PID:-}" ] && stop="kill $SB_PID"   # never default to killing a watched process
   _sb_clean "$stop"; SB_STOP=$SB_V
-  SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s)
+  SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_LAST=; SB_STARTED=$(date +%s); SB_ATT=0
+  case "${SB_JOB_STARTED:-}" in
+    '') ;; unknown) SB_ATT=2;;
+    *) if [[ $SB_JOB_STARTED =~ ^[0-9]+$ ]] && ((SB_JOB_STARTED <= SB_STARTED)); then SB_STARTED=$SB_JOB_STARTED; SB_ATT=1
+       else echo "sb_init: SB_JOB_STARTED must be an epoch time in the past, or 'unknown'" >&2; fi;;
+  esac
   SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=; SB_COLUMNS=; SB_FLUSHED=-1
   SB_RS=(); SB_RC=(); SB_ORDER=(); SB_CHECK=${SB_CHECK_EVERY:-0}; SB_WATCHING=1; SB_FIN=0
   mkdir -p "$SB_STATE" || return 1
@@ -89,6 +96,7 @@ SLOW_AFTER=${SB_SLOW_AFTER:-15}
 STALL_AFTER=${SB_STALL_AFTER:-60}
 WEIGHT_EXPLICIT=$SB_WEXPLICIT
 CHECK_EVERY=${SB_CHECK:-0}
+ATTACHED=${SB_ATT:-0}
 WATCHING=${SB_WATCHING:-1}
 "
 }
@@ -132,6 +140,8 @@ sb_start() {
   [ "${3:-}" = "?" ] && { SB_M=0; set -- "$1" "$2" "${4:-}"; }
   SB_WI="${3:-1}"; SB_W=$SB_WI; ((SB_WEXPLICIT)) || SB_W=1
   SB_T0=$(date +%s); SB_STAGE=
+  # attached to a job already under way: its first item started when the job did (or at an unknown time)
+  ((${SB_ATT:-0} > 0 && SB_DONE + SB_FAILED + SB_SKIPPED == 0)) && SB_T0=$SB_STARTED
   [ -n "$SB_COLUMNS" ] && sb_state "$SB_IDX" run
   _sb_put "$SB_STATE/progress" ""; _sb_current
 }
@@ -215,13 +225,13 @@ _sb_load() {  # <state-dir>: rebuild the writer's variables from the state files
   local k v line idx st rest
   SB_TITLE=job; SB_TOTAL=0; SB_WTOTAL=0; SB_DONE=0; SB_FAILED=0; SB_WARNED=0; SB_SKIPPED=0; SB_WDONE=0; SB_STARTED=0
   SB_LAST=; SB_STOP=; SB_WEXPLICIT=0; SB_IDX=; SB_LABEL=; SB_W=0; SB_WI=1; SB_M=1; SB_T0=0; SB_STAGE=
-  SB_COLUMNS=; SB_FLUSHED=-1; SB_RS=(); SB_RC=(); SB_ORDER=(); SB_CHECK=0; SB_WATCHING=1; SB_FIN=0
+  SB_COLUMNS=; SB_FLUSHED=-1; SB_RS=(); SB_RC=(); SB_ORDER=(); SB_CHECK=0; SB_WATCHING=1; SB_FIN=0; SB_ATT=0
   while IFS='=' read -r k v || [ -n "$k" ]; do
     case "$k" in
       TITLE) SB_TITLE=$v;; TOTAL) SB_TOTAL=$v;; WEIGHT_TOTAL) SB_WTOTAL=$v;; DONE) SB_DONE=$v;; FAILED) SB_FAILED=$v;;
       WARNED) SB_WARNED=$v;; SKIPPED) SB_SKIPPED=$v;; WEIGHT_DONE) SB_WDONE=$v;; STARTED) SB_STARTED=$v;; LAST) SB_LAST=$v;;
       STOP) SB_STOP=$v;; SLOW_AFTER) SB_SLOW_AFTER=$v;; STALL_AFTER) SB_STALL_AFTER=$v;; WEIGHT_EXPLICIT) SB_WEXPLICIT=$v;;
-      CHECK_EVERY) SB_CHECK=$v;; WATCHING) SB_WATCHING=$v;; FINISHED) SB_FIN=$v;;
+      CHECK_EVERY) SB_CHECK=$v;; WATCHING) SB_WATCHING=$v;; FINISHED) SB_FIN=$v;; ATTACHED) SB_ATT=$v;;
     esac
   done < "$SB_STATE/summary.env"
   if [ -f "$SB_STATE/current.env" ]; then

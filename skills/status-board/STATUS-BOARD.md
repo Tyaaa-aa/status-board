@@ -125,6 +125,10 @@ about every `CHECK_EVERY` seconds). Silence between readings is the schedule, no
 | `● NOT WATCHED - …. Ask Claude for an update` grey | `WATCHING=0` (Claude said it stopped checking), or no reading for more than `CHECK_EVERY` × 1.25 + 90 s (timers can fire late) |
 | `● NOT RUNNING` | the watched app's pid (`SB_WATCH_PID`) is gone |
 
+`ATTACHED` in `summary.env`: 0 = the board saw the job from its start; 1 = attached to a running job whose
+start time was given (`SB_JOB_STARTED=<epoch>`, elapsed counts from it); 2 = attached, start unknown: the board
+says `watched for` instead of `elapsed` and shows no extrapolated ETA (only one the tool reports).
+
 While NOT WATCHED, the bar turns grey and shows the reading's time (`26%  at 14:02`), and the ETA becomes the
 app's own estimate as a clock time (`around 14:23 (app's estimate at 14:02)`) instead of a live countdown.
 
@@ -142,7 +146,7 @@ rename). The viewer never executes these files; it only reads the keys listed he
 
 | File | Content |
 |---|---|
-| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER WEIGHT_EXPLICIT CHECK_EVERY WATCHING` (`STARTED` = epoch seconds, `FINISHED` = 0/1, `CHECK_EVERY` = seconds between readings or 0, `WATCHING` = 0/1) |
+| `summary.env` | `KEY=value` lines: `TITLE TOTAL DONE FAILED WARNED SKIPPED WEIGHT_TOTAL WEIGHT_DONE STARTED FINISHED LAST STOP SLOW_AFTER STALL_AFTER WEIGHT_EXPLICIT CHECK_EVERY WATCHING ATTACHED` (`STARTED` = epoch seconds, `FINISHED` = 0/1, `CHECK_EVERY` = seconds between readings or 0, `WATCHING` = 0/1) |
 | `current.env` | `KEY=value` lines for the item in progress: `IDX NAME WEIGHT STAGE ITEM_START`; empty between items |
 | `current.env` (cont.) | also `ITEM_WEIGHT` (weight as given) and `MEASURABLE=0` for an item whose progress cannot be measured |
 | `progress` | `done=<weight done in the current item>`, and optional `pct=<0-100 as the tool reports it>`, `eta=<seconds or h:mm:ss left, as the tool reports it>`, `count=<free text, e.g. 54 MB written>`, `rate=<free text>`, `read=<epoch of the last reading>`, `since=<epoch since the reading has had this value>`. Programs that write ffmpeg-style `out_time_us=` / `speed=` work as-is |
@@ -165,5 +169,8 @@ rename). The viewer never executes these files; it only reads the keys listed he
    or failure without being asked.
 7. Health comes from fresh progress, never from "the process exists", and never claims more than it knows: no
    progress is reported as "no progress for <time>", nobody checking as "NOT WATCHED".
-8. Check-ins (only for progress you alone can read, on a job that outlasts your turn): ask first, offering at
-   least three intervals that fit the job's length plus "no check-ins".
+8. Progress inside an app: feed the board from a background script that reads the app (CLI, API, control
+   port, status file) whenever one can; it costs nothing and keeps the chat quiet.
+9. Check-ins (Claude coming back on a timer) are off by default: each one uses the user's usage and fills the
+   chat. Offer them only when no script can read the progress, ask first with "No check-ins" recommended and at
+   least three intervals that fit the job (never under 10 minutes).
